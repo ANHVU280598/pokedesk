@@ -20,6 +20,10 @@ class JobStateError(Exception):
     """The job exists but the requested transition is not allowed."""
 
 
+class CatalogError(Exception):
+    """A catalog edit conflicts with the ledger (merge, delete, or ASIN)."""
+
+
 def utcnow() -> str:
     return datetime.now(timezone.utc).replace(microsecond=0).isoformat()
 
@@ -37,7 +41,21 @@ def init_db(path: Path) -> None:
         conn.execute("PRAGMA journal_mode = WAL")
         conn.executescript(SCHEMA_PATH.read_text(encoding="utf-8"))
         conn.execute("PRAGMA foreign_keys = ON")
+        _migrate(conn)
+        conn.commit()
         _conn = conn
+
+
+def _migrate(conn: sqlite3.Connection) -> None:
+    columns = {row["name"] for row in conn.execute("PRAGMA table_info(scrape_jobs)")}
+    if "parent_job_id" not in columns:
+        conn.execute(
+            "ALTER TABLE scrape_jobs ADD COLUMN parent_job_id INTEGER "
+            "REFERENCES scrape_jobs(id) ON DELETE SET NULL"
+        )
+    conn.execute(
+        "CREATE INDEX IF NOT EXISTS ix_jobs_parent ON scrape_jobs(parent_job_id)"
+    )
 
 
 def close_db() -> None:
@@ -94,6 +112,7 @@ def create_job(
     search_query: str | None,
     search_terms: str | None,
     settings: dict,
+    parent_job_id: int | None = None,
 ) -> dict:
     now = utcnow()
     with _tx() as conn:
@@ -101,10 +120,19 @@ def create_job(
             """
             INSERT INTO scrape_jobs (
               start_url, search_query, search_terms, status, pagination_mode,
-              pages_visited, items_scraped, settings_json, created_at, updated_at
-            ) VALUES (?, ?, ?, 'queued', 'unknown', 0, 0, ?, ?, ?)
+              pages_visited, items_scraped, settings_json, created_at, updated_at,
+              parent_job_id
+            ) VALUES (?, ?, ?, 'queued', 'unknown', 0, 0, ?, ?, ?, ?)
             """,
-            (start_url, search_query, search_terms, json.dumps(settings), now, now),
+            (
+                start_url,
+                search_query,
+                search_terms,
+                json.dumps(settings),
+                now,
+                now,
+                parent_job_id,
+            ),
         )
         row = _get(conn, int(cur.lastrowid))
         assert row is not None
@@ -496,6 +524,28 @@ def _upsert_product(
     url = card.get("product_url")
     crumbs = card.get("category_breadcrumbs")
     if asin:
+        owned = conn.execute(
+            "SELECT id FROM products WHERE asin = ?",
+            (asin,),
+        ).fetchone()
+        if owned is None:
+            attached = _null_asin_match(conn, title, url)
+            if attached is not None:
+                conn.execute(
+                    """
+                    UPDATE products
+                    SET asin = ?,
+                        title = ?,
+                        image_url = COALESCE(?, image_url),
+                        product_url = COALESCE(?, product_url),
+                        category_breadcrumbs = COALESCE(?, category_breadcrumbs),
+                        last_seen_at = ?,
+                        updated_at = ?
+                    WHERE id = ? AND asin IS NULL
+                    """,
+                    (asin, title, image, url, crumbs, now, now, attached),
+                )
+                return attached
         row = conn.execute(
             """
             INSERT INTO products (
@@ -674,7 +724,7 @@ def get_product(product_id: int) -> dict | None:
             FROM scrape_observations
             WHERE product_id = ?
             ORDER BY observed_at DESC, id DESC
-            LIMIT 20
+            LIMIT 100
             """,
             (product_id,),
         ).fetchall()
@@ -700,3 +750,376 @@ def _badges(raw: str | None) -> list:
 
 def _escape_like(value: str) -> str:
     return value.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
+
+
+def normalize_title(title: str) -> str:
+    return " ".join(re.sub(r"[^a-z0-9]+", " ", (title or "").lower()).split())
+
+
+def _null_asin_match(conn: sqlite3.Connection, title: str, url: str | None) -> int | None:
+    """Best-effort: attach a new ASIN to one existing card that never had one.
+
+    A shared product URL wins. Otherwise a single null-ASIN row with the same
+    normalized title (at least 12 characters) is used. Several title matches
+    are left alone.
+    """
+    if url:
+        row = conn.execute(
+            """
+            SELECT id FROM products
+            WHERE asin IS NULL AND product_url = ?
+            ORDER BY last_seen_at DESC, id DESC
+            LIMIT 1
+            """,
+            (url,),
+        ).fetchone()
+        if row is not None:
+            return int(row["id"])
+    norm = normalize_title(title)
+    if len(norm) < 12:
+        return None
+    rows = conn.execute(
+        "SELECT id, title FROM products WHERE asin IS NULL"
+    ).fetchall()
+    matches = [row for row in rows if normalize_title(row["title"]) == norm]
+    if len(matches) == 1:
+        return int(matches[0]["id"])
+    return None
+
+
+def _product_brief(row: sqlite3.Row, observation_count: int) -> dict:
+    return {
+        "id": row["id"],
+        "asin": row["asin"],
+        "title": row["title"],
+        "image_url": row["image_url"],
+        "product_url": row["product_url"],
+        "category_breadcrumbs": row["category_breadcrumbs"],
+        "first_seen_at": row["first_seen_at"],
+        "last_seen_at": row["last_seen_at"],
+        "observation_count": observation_count,
+    }
+
+
+def list_products(
+    *,
+    q: str | None = None,
+    has_asin: str | None = None,
+    last_seen_after: str | None = None,
+    last_seen_before: str | None = None,
+    limit: int = 25,
+    offset: int = 0,
+) -> dict:
+    where = ["1 = 1"]
+    args: list = []
+    if q:
+        like = f"%{_escape_like(q)}%"
+        where.append(
+            "(title LIKE ? ESCAPE '\\' OR IFNULL(asin, '') LIKE ? ESCAPE '\\' "
+            "OR IFNULL(product_url, '') LIKE ? ESCAPE '\\')"
+        )
+        args.extend([like, like, like])
+    if has_asin == "yes":
+        where.append("asin IS NOT NULL")
+    elif has_asin == "no":
+        where.append("asin IS NULL")
+    if last_seen_after:
+        where.append("last_seen_at >= ?")
+        args.append(last_seen_after)
+    if last_seen_before:
+        where.append("last_seen_at < ?")
+        args.append(last_seen_before)
+    clause = " AND ".join(where)
+    with _tx() as conn:
+        total = conn.execute(
+            f"SELECT COUNT(*) AS n FROM products WHERE {clause}",
+            args,
+        ).fetchone()["n"]
+        rows = conn.execute(
+            f"""
+            SELECT p.*,
+                   (SELECT COUNT(*) FROM scrape_observations o WHERE o.product_id = p.id)
+                     AS observation_count
+            FROM products p
+            WHERE {clause}
+            ORDER BY last_seen_at DESC, id DESC
+            LIMIT ? OFFSET ?
+            """,
+            [*args, limit, offset],
+        ).fetchall()
+    items = [_product_brief(row, int(row["observation_count"])) for row in rows]
+    return {"total": int(total), "items": items}
+
+
+def _clean_asin(asin: str | None) -> str | None:
+    cleaned = (asin or "").strip().upper()
+    if not cleaned:
+        return None
+    if not re.fullmatch(r"[A-Z0-9]{10}", cleaned):
+        raise ValueError("ASIN must be 10 letters or digits, or blank")
+    return cleaned
+
+
+def update_product(
+    product_id: int,
+    *,
+    title: str,
+    asin: str | None,
+    image_url: str | None,
+    product_url: str | None,
+    category_breadcrumbs: str | None,
+) -> dict:
+    title = " ".join((title or "").split())
+    if not title:
+        raise ValueError("Title is required")
+    asin = _clean_asin(asin)
+    image_url = (image_url or "").strip() or None
+    product_url = (product_url or "").strip() or None
+    category_breadcrumbs = (category_breadcrumbs or "").strip() or None
+    now = utcnow()
+    with _tx() as conn:
+        row = conn.execute("SELECT * FROM products WHERE id = ?", (product_id,)).fetchone()
+        if row is None:
+            raise LookupError(product_id)
+        if asin:
+            clash = conn.execute(
+                "SELECT id FROM products WHERE asin = ? AND id != ?",
+                (asin, product_id),
+            ).fetchone()
+            if clash is not None:
+                raise CatalogError(f"ASIN {asin} is already on product {clash['id']}")
+        conn.execute(
+            """
+            UPDATE products
+            SET title = ?, asin = ?, image_url = ?, product_url = ?,
+                category_breadcrumbs = ?, updated_at = ?
+            WHERE id = ?
+            """,
+            (title, asin, image_url, product_url, category_breadcrumbs, now, product_id),
+        )
+    product = get_product(product_id)
+    assert product is not None
+    return product
+
+
+def delete_product(product_id: int, *, force: bool = False) -> None:
+    with _tx() as conn:
+        row = conn.execute("SELECT id FROM products WHERE id = ?", (product_id,)).fetchone()
+        if row is None:
+            raise LookupError(product_id)
+        count = conn.execute(
+            "SELECT COUNT(*) AS n FROM scrape_observations WHERE product_id = ?",
+            (product_id,),
+        ).fetchone()["n"]
+        if count and not force:
+            raise CatalogError(
+                f"This product has {int(count)} observation"
+                f"{'' if int(count) == 1 else 's'}. Delete is blocked unless you force it."
+            )
+        jobs = [
+            int(item["job_id"])
+            for item in conn.execute(
+                "SELECT DISTINCT job_id FROM scrape_observations WHERE product_id = ?",
+                (product_id,),
+            )
+        ]
+        conn.execute("DELETE FROM products WHERE id = ?", (product_id,))
+        for job_id in jobs:
+            _recount_job(conn, job_id)
+
+
+def delete_observation(observation_id: int) -> int:
+    with _tx() as conn:
+        row = conn.execute(
+            "SELECT job_id FROM scrape_observations WHERE id = ?",
+            (observation_id,),
+        ).fetchone()
+        if row is None:
+            raise LookupError(observation_id)
+        job_id = int(row["job_id"])
+        conn.execute("DELETE FROM scrape_observations WHERE id = ?", (observation_id,))
+        _recount_job(conn, job_id)
+        return job_id
+
+
+def delete_job(job_id: int) -> None:
+    with _tx() as conn:
+        row = _get(conn, job_id)
+        if row is None:
+            raise LookupError(job_id)
+        if row["status"] in {"queued", "running", "paused"}:
+            raise JobStateError("Stop this job, or let it finish, before deleting it")
+        conn.execute(
+            "UPDATE scrape_jobs SET parent_job_id = NULL WHERE parent_job_id = ?",
+            (job_id,),
+        )
+        conn.execute("DELETE FROM scrape_jobs WHERE id = ?", (job_id,))
+
+
+def merge_products(keep_id: int, drop_id: int) -> dict:
+    if keep_id == drop_id:
+        raise CatalogError("Pick two different products")
+    now = utcnow()
+    with _tx() as conn:
+        keep = conn.execute("SELECT * FROM products WHERE id = ?", (keep_id,)).fetchone()
+        drop = conn.execute("SELECT * FROM products WHERE id = ?", (drop_id,)).fetchone()
+        if keep is None or drop is None:
+            raise LookupError(keep_id if keep is None else drop_id)
+        if keep["asin"] and drop["asin"] and keep["asin"] != drop["asin"]:
+            raise CatalogError(
+                "Both products have different ASINs. Clear one ASIN, then merge."
+            )
+        moved_asin = None
+        if not keep["asin"] and drop["asin"]:
+            moved_asin = drop["asin"]
+            conn.execute("UPDATE products SET asin = NULL WHERE id = ?", (drop_id,))
+        affected: set[int] = set()
+        drop_rows = conn.execute(
+            "SELECT * FROM scrape_observations WHERE product_id = ?",
+            (drop_id,),
+        ).fetchall()
+        for obs in drop_rows:
+            job_id = int(obs["job_id"])
+            affected.add(job_id)
+            conflict = conn.execute(
+                """
+                SELECT id, observed_at FROM scrape_observations
+                WHERE job_id = ? AND product_id = ?
+                """,
+                (job_id, keep_id),
+            ).fetchone()
+            if conflict is None:
+                conn.execute(
+                    "UPDATE scrape_observations SET product_id = ? WHERE id = ?",
+                    (keep_id, obs["id"]),
+                )
+                continue
+            drop_later = (obs["observed_at"] or "") > (conflict["observed_at"] or "")
+            if drop_later:
+                conn.execute(
+                    "DELETE FROM scrape_observations WHERE id = ?",
+                    (conflict["id"],),
+                )
+                conn.execute(
+                    "UPDATE scrape_observations SET product_id = ? WHERE id = ?",
+                    (keep_id, obs["id"]),
+                )
+            else:
+                conn.execute("DELETE FROM scrape_observations WHERE id = ?", (obs["id"],))
+        conn.execute(
+            """
+            UPDATE products
+            SET asin = COALESCE(?, asin),
+                image_url = COALESCE(image_url, ?),
+                product_url = COALESCE(product_url, ?),
+                category_breadcrumbs = COALESCE(category_breadcrumbs, ?),
+                last_seen_at = CASE WHEN last_seen_at >= ? THEN last_seen_at ELSE ? END,
+                updated_at = ?
+            WHERE id = ?
+            """,
+            (
+                moved_asin,
+                drop["image_url"],
+                drop["product_url"],
+                drop["category_breadcrumbs"],
+                drop["last_seen_at"],
+                drop["last_seen_at"],
+                now,
+                keep_id,
+            ),
+        )
+        conn.execute("DELETE FROM products WHERE id = ?", (drop_id,))
+        for job_id in affected:
+            _recount_job(conn, job_id)
+    product = get_product(keep_id)
+    assert product is not None
+    return product
+
+
+def duplicate_hints(limit: int = 40) -> list[dict]:
+    with _tx() as conn:
+        rows = conn.execute(
+            """
+            SELECT p.id, p.asin, p.title, p.product_url, p.last_seen_at,
+                   (SELECT COUNT(*) FROM scrape_observations o WHERE o.product_id = p.id)
+                     AS observation_count
+            FROM products p
+            ORDER BY p.id ASC
+            """
+        ).fetchall()
+    products = [dict(row) for row in rows]
+    by_title: dict[str, list[dict]] = {}
+    for product in products:
+        norm = normalize_title(product["title"])
+        if len(norm) < 12:
+            continue
+        by_title.setdefault(norm, []).append(product)
+    hints: list[dict] = []
+    seen: set[tuple[int, int]] = set()
+
+    def add(reason: str, members: list[dict]) -> None:
+        if len(hints) >= limit or len(members) < 2:
+            return
+        keep = _prefer_keep(members)
+        for other in members:
+            if other["id"] == keep["id"]:
+                continue
+            pair = (int(keep["id"]), int(other["id"]))
+            if pair in seen:
+                continue
+            seen.add(pair)
+            hints.append(
+                {
+                    "id": f"{pair[0]}-{pair[1]}",
+                    "reason": reason,
+                    "keep_id": pair[0],
+                    "drop_id": pair[1],
+                    "keep_title": keep["title"],
+                    "drop_title": other["title"],
+                    "keep_asin": keep["asin"],
+                    "drop_asin": other["asin"],
+                }
+            )
+            if len(hints) >= limit:
+                return
+
+    for members in by_title.values():
+        if len(members) >= 2:
+            add("Same normalized title", members)
+    asin_rows = [product for product in products if product["asin"]]
+    null_rows = [product for product in products if not product["asin"]]
+    for blank in null_rows:
+        norm = normalize_title(blank["title"])
+        for owned in asin_rows:
+            url_match = (
+                blank["product_url"]
+                and owned["product_url"]
+                and blank["product_url"] == owned["product_url"]
+            )
+            title_match = len(norm) >= 12 and norm == normalize_title(owned["title"])
+            if url_match or title_match:
+                reason = (
+                    "No ASIN, but the product URL matches an ASIN row"
+                    if url_match
+                    else "No ASIN, but the title matches an ASIN row"
+                )
+                add(reason, [owned, blank])
+    return hints
+
+
+def _prefer_keep(members: list[dict]) -> dict:
+    with_asin = [item for item in members if item["asin"]]
+    if len(with_asin) == 1:
+        return with_asin[0]
+    return max(members, key=lambda item: (int(item["observation_count"]), -int(item["id"])))
+
+
+def _recount_job(conn: sqlite3.Connection, job_id: int) -> None:
+    conn.execute(
+        """
+        UPDATE scrape_jobs
+        SET items_scraped = ?, updated_at = ?
+        WHERE id = ?
+        """,
+        (_count_obs(conn, job_id), utcnow(), job_id),
+    )

@@ -19,9 +19,35 @@ class JobCreate(BaseModel):
     delay_sec: float | None = Field(default=None, ge=0, le=60)
     headless: bool | None = None
     fixture_set: Literal["pokemon", "captcha", "pagecap", "showmore"] | None = None
+    proxy_mode: Literal["default", "off", "custom"] = "default"
+    proxy_url: str | None = None
+    proxy_username: str | None = None
+    proxy_password: str | None = None
 
 
 class SettingsUpdate(BaseModel):
     delay_sec: float = Field(ge=1, le=60)
     max_pages: int = Field(ge=1, le=20)
     headless: bool
+    proxy_enabled: bool = False
+    proxy_url: str = ""
+    proxy_username: str = ""
+    proxy_password: str = ""
+    clear_proxy_password: bool = False
+
+
+class FollowUpCreate(BaseModel):
+    suggestion_ids: list[str] = Field(min_length=1)
+
+
+class ProductUpdate(BaseModel):
+    title: str = Field(min_length=1, max_length=500)
+    asin: str | None = None
+    image_url: str | None = None
+    product_url: str | None = None
+    category_breadcrumbs: str | None = None
+
+
+class ProductMerge(BaseModel):
+    keep_id: int
+    drop_id: int

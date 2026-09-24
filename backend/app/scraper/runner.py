@@ -9,6 +9,7 @@ import time
 from app import db
 from app.scraper.parser import card_payload, parse_results
 from app.scraper.sessions import FixtureSession, PlaywrightSession
+from app.service import playwright_proxy
 
 logger = logging.getLogger(__name__)
 
@@ -273,7 +274,10 @@ async def _open_session(settings: dict):
     resume = str(settings.get("resume_url") or "")
     if settings.get("mode") == "fixture" or resume.startswith("fixture:"):
         return FixtureSession(settings.get("fixture_set") or "pokemon")
-    return await PlaywrightSession.launch(headless=bool(settings.get("headless", True)))
+    return await PlaywrightSession.launch(
+        headless=bool(settings.get("headless", True)),
+        proxy=playwright_proxy(settings),
+    )
 
 
 async def wait_until_not_paused(job_id: int) -> str:

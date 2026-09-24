@@ -147,3 +147,47 @@ def test_claim_queue_order(database):
     assert db.get_status(first["id"]) == "running"
     assert db.claim_next_queued() == second["id"]
     assert db.claim_next_queued() is None
+
+
+def test_asin_attaches_to_one_null_row_by_url_or_title(database):
+    job = _job(database)
+    by_url = db.upsert_card(
+        job["id"],
+        _card(
+            asin=None,
+            title="Charizard ex Ultra Premium",
+            product_url="https://www.amazon.com/loose-charizard",
+        ),
+    )
+    attached = db.upsert_card(
+        job["id"],
+        _card(
+            asin="B0ATTACH01",
+            title="Charizard ex Ultra Premium",
+            product_url="https://www.amazon.com/loose-charizard",
+            price=39,
+        ),
+    )
+    assert attached == by_url
+    assert db.get_product(by_url)["asin"] == "B0ATTACH01"
+
+    other = _job(database)
+    left = db.upsert_card(
+        other["id"],
+        _card(asin=None, title="Unique Blastoise Binder Set", product_url="https://www.amazon.com/a"),
+    )
+    right = db.upsert_card(
+        other["id"],
+        _card(asin=None, title="Unique Blastoise Binder Set", product_url="https://www.amazon.com/b"),
+    )
+    fresh = db.upsert_card(
+        other["id"],
+        _card(
+            asin="B0ATTACH02",
+            title="Unique Blastoise Binder Set",
+            product_url="https://www.amazon.com/c",
+        ),
+    )
+    assert left != right
+    assert fresh not in {left, right}
+    assert db.get_product(fresh)["asin"] == "B0ATTACH02"

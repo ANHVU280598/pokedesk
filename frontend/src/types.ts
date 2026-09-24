@@ -24,6 +24,12 @@ export type JobSettings = {
   block_acknowledged?: boolean
   stopped_by_operator?: boolean
   retry_wait_sec?: number | null
+  sort?: string | null
+  proxy_enabled?: boolean
+  proxy_url?: string
+  proxy_username?: string
+  proxy_password?: string
+  proxy_password_set?: boolean
 }
 
 export type Job = {
@@ -39,6 +45,7 @@ export type Job = {
   finished_at: string | null
   error_message: string | null
   settings: JobSettings
+  parent_job_id: number | null
   created_at: string
   updated_at: string
 }
@@ -101,6 +108,58 @@ export type OperatorSettings = {
   delay_sec: number
   max_pages: number
   headless: boolean
+  proxy_enabled: boolean
+  proxy_url: string
+  proxy_username: string
+  proxy_password: string
+  proxy_password_set: boolean
 }
 
-export type View = "new" | "live" | "results" | "history" | "settings"
+export type SettingsWrite = {
+  delay_sec: number
+  max_pages: number
+  headless: boolean
+  proxy_enabled: boolean
+  proxy_url: string
+  proxy_username: string
+  proxy_password: string
+  clear_proxy_password?: boolean
+}
+
+export type ProxyMode = "default" | "off" | "custom"
+
+export type FollowUpSuggestion = {
+  id: string
+  kind: "price" | "sort"
+  label: string
+  detail: string
+  start_url: string
+  min_price: number | null
+  max_price: number | null
+  sort: string
+}
+
+export type CatalogProduct = {
+  id: number
+  asin: string | null
+  title: string
+  image_url: string | null
+  product_url: string | null
+  category_breadcrumbs: string | null
+  first_seen_at: string
+  last_seen_at: string
+  observation_count: number
+}
+
+export type DuplicateHint = {
+  id: string
+  reason: string
+  keep_id: number
+  drop_id: number
+  keep_title: string
+  drop_title: string
+  keep_asin: string | null
+  drop_asin: string | null
+}
+
+export type View = "new" | "live" | "results" | "history" | "settings" | "database"

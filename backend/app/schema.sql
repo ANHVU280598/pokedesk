@@ -19,7 +19,8 @@ CREATE TABLE IF NOT EXISTS scrape_jobs (
   error_message TEXT,
   settings_json TEXT NOT NULL,
   created_at TEXT NOT NULL,
-  updated_at TEXT NOT NULL
+  updated_at TEXT NOT NULL,
+  parent_job_id INTEGER REFERENCES scrape_jobs(id) ON DELETE SET NULL
 );
 
 CREATE TABLE IF NOT EXISTS products (

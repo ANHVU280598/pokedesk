@@ -1,9 +1,14 @@
 import type {
+  CatalogProduct,
+  DuplicateHint,
+  FollowUpSuggestion,
   Job,
   JobMode,
   ObservationPage,
   OperatorSettings,
   Product,
+  ProxyMode,
+  SettingsWrite,
 } from "./types"
 
 export class ApiError extends Error {
@@ -67,6 +72,10 @@ export function createJob(body: {
   delay_sec?: number
   headless?: boolean
   fixture_set?: string
+  proxy_mode?: ProxyMode
+  proxy_url?: string
+  proxy_username?: string
+  proxy_password?: string
 }) {
   return api<Job>("/api/jobs", { method: "POST", body: JSON.stringify(body) })
 }
@@ -114,9 +123,80 @@ export function getSettings() {
   return api<OperatorSettings>("/api/settings")
 }
 
-export function putSettings(body: OperatorSettings) {
+export function putSettings(body: SettingsWrite) {
   return api<OperatorSettings>("/api/settings", {
     method: "PUT",
     body: JSON.stringify(body),
+  })
+}
+
+export function listFollowUps(jobId: number) {
+  return api<{ job_id: number; suggestions: FollowUpSuggestion[] }>(
+    `/api/jobs/${jobId}/follow-ups`,
+  )
+}
+
+export function createFollowUps(jobId: number, suggestionIds: string[]) {
+  return api<{ jobs: Job[] }>(`/api/jobs/${jobId}/follow-ups`, {
+    method: "POST",
+    body: JSON.stringify({ suggestion_ids: suggestionIds }),
+  })
+}
+
+export function deleteJob(id: number) {
+  return api<{ ok: boolean }>(`/api/jobs/${id}`, { method: "DELETE" })
+}
+
+export function listProducts(params: {
+  q?: string
+  has_asin?: string
+  last_seen_after?: string
+  last_seen_before?: string
+  limit?: number
+  offset?: number
+}) {
+  const query = new URLSearchParams()
+  for (const [key, value] of Object.entries(params)) {
+    if (value !== undefined && value !== "") query.set(key, String(value))
+  }
+  const suffix = query.size ? `?${query}` : ""
+  return api<{ total: number; items: CatalogProduct[] }>(`/api/products${suffix}`)
+}
+
+export function listDuplicates() {
+  return api<{ hints: DuplicateHint[] }>("/api/products/duplicates")
+}
+
+export function mergeProducts(keepId: number, dropId: number) {
+  return api<Product>("/api/products/merge", {
+    method: "POST",
+    body: JSON.stringify({ keep_id: keepId, drop_id: dropId }),
+  })
+}
+
+export function updateProduct(
+  id: number,
+  body: {
+    title: string
+    asin: string | null
+    image_url: string | null
+    product_url: string | null
+    category_breadcrumbs: string | null
+  },
+) {
+  return api<Product>(`/api/products/${id}`, {
+    method: "PATCH",
+    body: JSON.stringify(body),
+  })
+}
+
+export function deleteProduct(id: number, force = false) {
+  const suffix = force ? "?force=true" : ""
+  return api<{ ok: boolean }>(`/api/products/${id}${suffix}`, { method: "DELETE" })
+}
+
+export function deleteObservation(id: number) {
+  return api<{ ok: boolean; job_id: number }>(`/api/observations/${id}`, {
+    method: "DELETE",
   })
 }

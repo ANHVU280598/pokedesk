@@ -5,6 +5,7 @@ const ITEMS: { id: View; label: string }[] = [
   { id: "live", label: "Live job" },
   { id: "results", label: "Results" },
   { id: "history", label: "History" },
+  { id: "database", label: "Database" },
   { id: "settings", label: "Settings" },
 ]
 

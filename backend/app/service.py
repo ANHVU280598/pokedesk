@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from urllib.parse import urlparse
+
 from app.scraper.urls import DEPARTMENTS, build_search_url, validate_amazon_url
 from app.schemas import JobCreate, SettingsUpdate
 
@@ -76,6 +78,7 @@ def compose_new_job(body: JobCreate, defaults: dict) -> dict:
         "resume_url": start_url,
         "next_page_number": 1,
         "block_acknowledged": False,
+        **resolve_job_proxy(body, defaults),
     }
     return {
         "start_url": start_url,
@@ -85,11 +88,97 @@ def compose_new_job(body: JobCreate, defaults: dict) -> dict:
     }
 
 
-def clean_settings(body: SettingsUpdate) -> dict:
+def clean_settings(body: SettingsUpdate, current: dict) -> dict:
+    url = (body.proxy_url or "").strip()
+    if body.proxy_enabled and not url:
+        raise ValueError("Enter a proxy URL, or turn the proxy off")
+    if url:
+        validate_proxy_url(url)
+    if body.clear_proxy_password:
+        password = ""
+    elif (body.proxy_password or "").strip():
+        password = body.proxy_password
+    else:
+        password = current.get("proxy_password") or ""
     return {
         "delay_sec": float(body.delay_sec),
         "max_pages": int(body.max_pages),
         "headless": bool(body.headless),
+        "proxy_enabled": bool(body.proxy_enabled),
+        "proxy_url": url,
+        "proxy_username": (body.proxy_username or "").strip(),
+        "proxy_password": password,
+    }
+
+
+def resolve_job_proxy(body: JobCreate, defaults: dict) -> dict:
+    if body.mode == "fixture" or body.proxy_mode == "off":
+        return _proxy_off()
+    if body.proxy_mode == "custom":
+        url = (body.proxy_url or "").strip()
+        if not url:
+            raise ValueError("Enter a proxy URL, or use the settings default")
+        validate_proxy_url(url)
+        password = body.proxy_password or ""
+        username = body.proxy_username if body.proxy_username is not None else ""
+        if not password and url == (defaults.get("proxy_url") or "").strip():
+            password = defaults.get("proxy_password") or ""
+        if not username and url == (defaults.get("proxy_url") or "").strip():
+            username = defaults.get("proxy_username") or ""
+        return {
+            "proxy_enabled": True,
+            "proxy_url": url,
+            "proxy_username": username.strip(),
+            "proxy_password": password,
+        }
+    if defaults.get("proxy_enabled") and (defaults.get("proxy_url") or "").strip():
+        return {
+            "proxy_enabled": True,
+            "proxy_url": str(defaults.get("proxy_url") or "").strip(),
+            "proxy_username": defaults.get("proxy_username") or "",
+            "proxy_password": defaults.get("proxy_password") or "",
+        }
+    return _proxy_off()
+
+
+def playwright_proxy(settings: dict) -> dict | None:
+    """Proxy dict for Chromium. Fixture jobs never use one."""
+    if settings.get("mode") == "fixture" or str(settings.get("resume_url") or "").startswith("fixture:"):
+        return None
+    if not settings.get("proxy_enabled"):
+        return None
+    raw = (settings.get("proxy_url") or "").strip()
+    if not raw:
+        return None
+    parsed = urlparse(raw)
+    if not parsed.hostname or parsed.scheme not in {"http", "https", "socks5"}:
+        return None
+    port = f":{parsed.port}" if parsed.port else ""
+    config: dict[str, str] = {"server": f"{parsed.scheme}://{parsed.hostname}{port}"}
+    username = settings.get("proxy_username") or parsed.username or ""
+    password = settings.get("proxy_password") or parsed.password or ""
+    if username:
+        config["username"] = username
+    if password:
+        config["password"] = password
+    return config
+
+
+def validate_proxy_url(url: str) -> str:
+    parsed = urlparse(url.strip())
+    if parsed.scheme not in {"http", "https", "socks5"}:
+        raise ValueError("Proxy URL must start with http://, https://, or socks5://")
+    if not parsed.hostname:
+        raise ValueError("Proxy URL needs a host")
+    return url.strip()
+
+
+def _proxy_off() -> dict:
+    return {
+        "proxy_enabled": False,
+        "proxy_url": "",
+        "proxy_username": "",
+        "proxy_password": "",
     }
 
 

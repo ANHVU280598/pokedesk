@@ -58,8 +58,8 @@ In the UI:
 
 1. Choose **Amazon URL** or **Pokemon search** (keyword presets, department, optional price band).
 2. Set max pages and the delay between pages.
-3. **Start scrape**. Pause, stop, and—if Amazon blocks the session—**Wait & retry** or **Stop & keep** are on Live job.
-4. Open **Results** (table or grid; a row opens the card drawer) or **History** (View / Re-run).
+3. **Start scrape**. Pause, stop, and—if Amazon blocks the session—**Wait & retry**, **Stop & keep**, or **Create follow-up jobs** are on Live job.
+4. Open **Results** (table or grid; a row opens the card drawer), **History** (View / Re-run / follow-ups on blocked jobs), or **Database** (edit, delete, and merge products).
 
 **Dry-run** uses saved HTML instead of Amazon, which is useful when the live site is flaky:
 
@@ -80,14 +80,35 @@ curl -s -X POST http://127.0.0.1:8765/api/jobs \
   -d '{"mode":"search","search_query":"pokemon booster box","search_terms":"pokemon cards|booster box","max_pages":2,"delay_sec":2}'
 ```
 
-Live Amazon scrapes require a delay of at least 1 second and at most 20 pages. Defaults live in **Settings** (delay, max pages, headless or headed). Headed mode needs a display.
+Live Amazon scrapes require a delay of at least 1 second and at most 20 pages. Defaults live in **Settings** (delay, max pages, headless or headed, optional proxy). Headed mode needs a display.
+
+## Follow-up jobs
+
+When a job ends as `blocked`, Live job and History offer **Create follow-up jobs**. Suggestions slice the original search by price (under $25, $25–$50, $50–$100, $100+) or by an Amazon sort (featured, price low to high, newest). Each selected suggestion becomes a new `scrape_job` with `parent_job_id` set and `search_terms` noting the follow-up. They do not continue pagination on the blocked URL, and they do not try to evade the check.
+
+A blocked dry-run still suggests live Amazon searches built from that job’s keyword.
+
+## Proxy
+
+Settings can turn on a proxy (`http`, `https`, or `socks5`) with an optional username and password. New scrape can use that default, turn the proxy off for one job, or set a custom URL. Playwright receives the proxy only for live scrapes. Fixture dry-runs never use it.
+
+The password is stored in plaintext in `data/settings.json` (gitignored) and copied into the job row so a restart can still launch that scrape. The API returns an empty password plus `proxy_password_set`. Leave the password field blank to keep the saved one, or check **Clear saved password**.
+
+## Products and duplicates
+
+- A product with an ASIN is one row. Seeing that ASIN again updates the row. Each job keeps its own observation, so price history is those rows, not a second product.
+- The same ASIN twice in one job updates that job’s single observation.
+- Cards with no ASIN are not collapsed together, except when they share a product URL.
+- While scraping, if a new card has an ASIN and exactly one existing no-ASIN card matches its product URL—or, failing that, its normalized title is at least 12 characters and matches exactly one no-ASIN row—the ASIN is written onto that row. Several title matches are left alone.
+- **Database** can search products, filter by ASIN and last-seen dates, edit a row, delete a snapshot, and delete a finished job (its snapshots go with it; products stay). Deleting a product that still has snapshots is refused unless you confirm, which removes those snapshots.
+- **Duplicates** lists same-title groups and no-ASIN cards that sit next to an ASIN match. **Merge** keeps one row, moves snapshots onto it, and drops the other. If both rows have observations for the same job, the later snapshot is kept.
 
 Data files (gitignored):
 
 - `data/scrape.db` — jobs, products, observations, page snapshots
-- `data/settings.json` — operator defaults
+- `data/settings.json` — operator defaults, including the proxy password
 
-Delete `data/scrape.db` to reset the ledger.
+Delete `data/scrape.db` to reset the ledger. Delete `data/settings.json` to reset defaults.
 
 ## Tests
 
@@ -96,7 +117,7 @@ source .venv/bin/activate
 pytest
 ```
 
-Parser tests read HTML fixtures in `backend/app/fixtures/`. Database tests cover ASIN upserts, one observation per job and product, and null ASINs. API tests run fixture jobs through the worker, including pause, stop, soft-block, and page-cap.
+Parser tests read HTML fixtures in `backend/app/fixtures/`. Database tests cover ASIN upserts, one observation per job and product, null ASINs, and attaching an ASIN onto one matching no-ASIN row. API tests run fixture jobs through the worker, including pause, stop, soft-block, page-cap, follow-ups from a blocked parent, proxy settings, product edit, and merge. Live browser launch is disabled in those tests.
 
 ## Schema
 
@@ -108,7 +129,8 @@ MVP choices baked in:
 - No `daily_prices` rollup. Price history is the observation rows across jobs.
 - `search_terms` is TEXT on `scrape_jobs` (pipe-separated tags such as `pokemon cards|booster box`).
 - Job status adds `blocked` alongside `queued`, `running`, `paused`, `completed`, and `failed`.
-- Products are unique on ASIN when ASIN is present. Cards without an ASIN stay separate unless they share a product URL.
+- Products are unique on ASIN when ASIN is present. Cards without an ASIN stay separate unless they share a product URL, or a later card with an ASIN matches one of them (see above).
+- `scrape_jobs.parent_job_id` points at the blocked job a follow-up was created from. Deleting the parent clears the link.
 
 ## API
 
@@ -121,9 +143,18 @@ MVP choices baked in:
 | POST | `/api/jobs/{id}/resume` | Resume a paused job |
 | POST | `/api/jobs/{id}/stop` | Stop and keep results, or acknowledge a block |
 | POST | `/api/jobs/{id}/retry` | Wait, then retry a blocked job |
+| GET | `/api/jobs/{id}/follow-ups` | Suggested price and sort slices for a blocked job |
+| POST | `/api/jobs/{id}/follow-ups` | Queue selected follow-ups (`suggestion_ids`) |
+| DELETE | `/api/jobs/{id}` | Delete a finished job, its observations, and its snapshots |
 | GET | `/api/jobs/{id}/observations` | Cards for a job (`q`, `min_price`, `max_price`, `min_rating`, `sort`) |
+| GET | `/api/products` | Search the catalog (`q`, `has_asin`, `last_seen_after`, `last_seen_before`, `limit`, `offset`) |
+| GET | `/api/products/duplicates` | Same-title and no-ASIN hints |
+| POST | `/api/products/merge` | Merge `drop_id` into `keep_id` and reassign observations |
 | GET | `/api/products/{id}` | Product plus recent observations |
-| GET/PUT | `/api/settings` | Default delay, max pages, headless |
+| PATCH | `/api/products/{id}` | Edit title, ASIN, image, URL, breadcrumbs |
+| DELETE | `/api/products/{id}` | Delete a product. `force=true` also deletes its observations |
+| DELETE | `/api/observations/{id}` | Delete one snapshot and recount the job |
+| GET/PUT | `/api/settings` | Delay, max pages, headless, and proxy. GET masks the password |
 
 ## Layout
 

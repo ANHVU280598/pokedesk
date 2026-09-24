@@ -67,13 +67,16 @@ class PlaywrightSession:
         self.last_status: int | None = None
 
     @classmethod
-    async def launch(cls, *, headless: bool) -> PlaywrightSession:
+    async def launch(cls, *, headless: bool, proxy: dict | None = None) -> PlaywrightSession:
         session = cls()
         try:
             from playwright.async_api import async_playwright
 
             session._pw = await async_playwright().start()
-            session._browser = await session._pw.chromium.launch(headless=headless)
+            launch_args: dict = {"headless": headless}
+            if proxy:
+                launch_args["proxy"] = proxy
+            session._browser = await session._pw.chromium.launch(**launch_args)
             context = await session._browser.new_context(
                 locale="en-US",
                 timezone_id="America/Los_Angeles",

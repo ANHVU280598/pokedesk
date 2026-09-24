@@ -8,6 +8,12 @@ export function Settings() {
   const [delaySec, setDelaySec] = useState("2.5")
   const [maxPages, setMaxPages] = useState("3")
   const [headless, setHeadless] = useState(true)
+  const [proxyEnabled, setProxyEnabled] = useState(false)
+  const [proxyUrl, setProxyUrl] = useState("")
+  const [proxyUsername, setProxyUsername] = useState("")
+  const [proxyPassword, setProxyPassword] = useState("")
+  const [passwordSet, setPasswordSet] = useState(false)
+  const [clearPassword, setClearPassword] = useState(false)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
   const [saved, setSaved] = useState(false)
@@ -21,6 +27,12 @@ export function Settings() {
         setDelaySec(String(settings.delay_sec))
         setMaxPages(String(settings.max_pages))
         setHeadless(settings.headless)
+        setProxyEnabled(settings.proxy_enabled)
+        setProxyUrl(settings.proxy_url || "")
+        setProxyUsername(settings.proxy_username || "")
+        setPasswordSet(settings.proxy_password_set)
+        setProxyPassword("")
+        setClearPassword(false)
       })
       .catch((err: unknown) => {
         if (!cancel) setError(err instanceof ApiError ? err.message : "Could not load settings.")
@@ -53,10 +65,21 @@ export function Settings() {
         delay_sec: delay,
         max_pages: pages,
         headless,
+        proxy_enabled: proxyEnabled,
+        proxy_url: proxyUrl.trim(),
+        proxy_username: proxyUsername.trim(),
+        proxy_password: proxyPassword,
+        clear_proxy_password: clearPassword,
       })
       setDelaySec(String(next.delay_sec))
       setMaxPages(String(next.max_pages))
       setHeadless(next.headless)
+      setProxyEnabled(next.proxy_enabled)
+      setProxyUrl(next.proxy_url || "")
+      setProxyUsername(next.proxy_username || "")
+      setPasswordSet(next.proxy_password_set)
+      setProxyPassword("")
+      setClearPassword(false)
       setSaved(true)
     } catch (err) {
       setError(err instanceof ApiError ? err.message : "Could not save settings.")
@@ -134,6 +157,67 @@ export function Settings() {
                 </span>
               </span>
             </label>
+          </fieldset>
+          <fieldset className="space-y-3 border-t pt-4">
+            <legend className="text-sm font-medium">Proxy</legend>
+            <p className="text-xs text-muted-foreground">
+              Used for live Playwright scrapes only. Dry-runs stay on this machine. The password is stored in the local settings file and is not shown again after you save.
+            </p>
+            <label className="flex items-center gap-2 text-sm">
+              <input
+                type="checkbox"
+                checked={proxyEnabled}
+                onChange={(event) => setProxyEnabled(event.target.checked)}
+                className="accent-[#9a3412]"
+              />
+              Enable proxy
+            </label>
+            <div className="space-y-2">
+              <Label htmlFor="proxy-url">Proxy URL</Label>
+              <Input
+                id="proxy-url"
+                value={proxyUrl}
+                onChange={(event) => setProxyUrl(event.target.value)}
+                placeholder="http://127.0.0.1:8888 or socks5://host:1080"
+                autoComplete="off"
+                className="h-10"
+              />
+            </div>
+            <div className="grid gap-3 sm:grid-cols-2">
+              <div className="space-y-2">
+                <Label htmlFor="proxy-user">Username</Label>
+                <Input
+                  id="proxy-user"
+                  value={proxyUsername}
+                  onChange={(event) => setProxyUsername(event.target.value)}
+                  autoComplete="off"
+                  className="h-10"
+                />
+              </div>
+              <div className="space-y-2">
+                <Label htmlFor="proxy-pass">Password</Label>
+                <Input
+                  id="proxy-pass"
+                  type="password"
+                  value={proxyPassword}
+                  onChange={(event) => setProxyPassword(event.target.value)}
+                  placeholder={passwordSet ? "Saved — leave blank to keep" : "Optional"}
+                  autoComplete="new-password"
+                  className="h-10"
+                />
+              </div>
+            </div>
+            {passwordSet ? (
+              <label className="flex items-center gap-2 text-sm">
+                <input
+                  type="checkbox"
+                  checked={clearPassword}
+                  onChange={(event) => setClearPassword(event.target.checked)}
+                  className="accent-[#9a3412]"
+                />
+                Clear saved password
+              </label>
+            ) : null}
           </fieldset>
           {error ? (
             <p className="rounded-md border border-rose-200 bg-rose-50 px-3 py-2 text-sm text-rose-900" role="alert">

@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from "react"
 import { Button } from "@/components/ui/button"
 import { ApiError, getJob, listJobs, listObservations, pauseJob, resumeJob, retryJob, stopJob } from "../api"
+import { FollowUpButton } from "../components/FollowUps"
 import { StatusChip } from "../components/StatusChip"
 import { formatMoney, paginationLabel } from "../format"
 import type { Job, Observation } from "../types"
@@ -151,6 +152,7 @@ export function LiveJob({
             <Button size="sm" variant="outline" onClick={() => onOpenResults(job.id)}>
               Open results
             </Button>
+            <FollowUpButton jobId={job.id} onQueued={onAdopt} />
           </div>
         </div>
       ) : null}

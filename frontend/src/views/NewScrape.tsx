@@ -3,7 +3,7 @@ import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { ApiError, createJob, getSettings } from "../api"
-import type { OperatorSettings } from "../types"
+import type { OperatorSettings, ProxyMode } from "../types"
 
 const PRESETS = [
   { label: "Cards", query: "pokemon trading cards", terms: "pokemon cards" },
@@ -33,6 +33,10 @@ export function NewScrape({ onStarted }: { onStarted: (jobId: number) => void })
   const [maxPages, setMaxPages] = useState("3")
   const [delaySec, setDelaySec] = useState("2.5")
   const [browser, setBrowser] = useState<OperatorSettings | null>(null)
+  const [proxyMode, setProxyMode] = useState<ProxyMode>("default")
+  const [proxyUrl, setProxyUrl] = useState("")
+  const [proxyUsername, setProxyUsername] = useState("")
+  const [proxyPassword, setProxyPassword] = useState("")
   const [error, setError] = useState<string | null>(null)
   const [pending, setPending] = useState<"live" | "fixture" | null>(null)
 
@@ -98,6 +102,10 @@ export function NewScrape({ onStarted }: { onStarted: (jobId: number) => void })
         max_price: mode === "search" ? max : undefined,
         max_pages: pages,
         delay_sec: delay,
+        proxy_mode: proxyMode,
+        proxy_url: proxyMode === "custom" ? proxyUrl.trim() : undefined,
+        proxy_username: proxyMode === "custom" ? proxyUsername.trim() : undefined,
+        proxy_password: proxyMode === "custom" ? proxyPassword : undefined,
       })
       onStarted(job.id)
     } catch (err) {
@@ -269,8 +277,90 @@ export function NewScrape({ onStarted }: { onStarted: (jobId: number) => void })
               />
             </div>
           </div>
+          <fieldset className="space-y-2">
+            <legend className="text-sm font-medium">Proxy</legend>
+            <label className="flex items-start gap-3 rounded-lg border p-3">
+              <input
+                type="radio"
+                name="proxy"
+                checked={proxyMode === "default"}
+                onChange={() => setProxyMode("default")}
+                className="mt-1 accent-[#9a3412]"
+              />
+              <span>
+                <span className="block text-sm font-medium">Use settings default</span>
+                <span className="block text-xs text-muted-foreground">
+                  {browser?.proxy_enabled && browser.proxy_url
+                    ? `On · ${browser.proxy_url}`
+                    : "No proxy saved in Settings."}
+                </span>
+              </span>
+            </label>
+            <label className="flex items-start gap-3 rounded-lg border p-3">
+              <input
+                type="radio"
+                name="proxy"
+                checked={proxyMode === "off"}
+                onChange={() => setProxyMode("off")}
+                className="mt-1 accent-[#9a3412]"
+              />
+              <span>
+                <span className="block text-sm font-medium">No proxy</span>
+                <span className="block text-xs text-muted-foreground">This job connects directly.</span>
+              </span>
+            </label>
+            <label className="flex items-start gap-3 rounded-lg border p-3">
+              <input
+                type="radio"
+                name="proxy"
+                checked={proxyMode === "custom"}
+                onChange={() => setProxyMode("custom")}
+                className="mt-1 accent-[#9a3412]"
+              />
+              <span>
+                <span className="block text-sm font-medium">Custom proxy</span>
+                <span className="block text-xs text-muted-foreground">Override for this job only.</span>
+              </span>
+            </label>
+            {proxyMode === "custom" ? (
+              <div className="grid gap-3 sm:grid-cols-2">
+                <div className="space-y-2 sm:col-span-2">
+                  <Label htmlFor="job-proxy-url">Proxy URL</Label>
+                  <Input
+                    id="job-proxy-url"
+                    value={proxyUrl}
+                    onChange={(event) => setProxyUrl(event.target.value)}
+                    placeholder="http://127.0.0.1:8888"
+                    autoComplete="off"
+                    className="h-10"
+                  />
+                </div>
+                <div className="space-y-2">
+                  <Label htmlFor="job-proxy-user">Username</Label>
+                  <Input
+                    id="job-proxy-user"
+                    value={proxyUsername}
+                    onChange={(event) => setProxyUsername(event.target.value)}
+                    autoComplete="off"
+                    className="h-10"
+                  />
+                </div>
+                <div className="space-y-2">
+                  <Label htmlFor="job-proxy-pass">Password</Label>
+                  <Input
+                    id="job-proxy-pass"
+                    type="password"
+                    value={proxyPassword}
+                    onChange={(event) => setProxyPassword(event.target.value)}
+                    autoComplete="new-password"
+                    className="h-10"
+                  />
+                </div>
+              </div>
+            ) : null}
+          </fieldset>
           <p className="text-xs text-muted-foreground">
-            Browser: {browser ? (browser.headless ? "headless" : "headed") : "…"}. Change that in Settings. Live scrapes wait at least 1 second between pages.
+            Browser: {browser ? (browser.headless ? "headless" : "headed") : "…"}. Change that in Settings. Live scrapes wait at least 1 second between pages. Dry-runs ignore the proxy.
           </p>
           {error ? (
             <p className="rounded-md border border-rose-200 bg-rose-50 px-3 py-2 text-sm text-rose-900" role="alert">

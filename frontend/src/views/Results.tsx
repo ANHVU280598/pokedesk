@@ -99,6 +99,9 @@ export function Results({
           <p className="mt-1 text-sm text-muted-foreground">
             {jobId == null ? "No scrapes yet." : `${total} card${total === 1 ? "" : "s"} in this job`}
           </p>
+          <p className="mt-2 max-w-xl text-xs text-muted-foreground">
+            One product per ASIN. The same ASIN in a later job updates that product and adds a snapshot. Cards without an ASIN are not folded together. Merge those from Database.
+          </p>
         </div>
         <div className="flex rounded-lg border bg-card p-1">
           <Button

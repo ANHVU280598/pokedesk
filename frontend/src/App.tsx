@@ -4,6 +4,7 @@ import { listJobs } from "./api"
 import { Sidebar } from "./components/Sidebar"
 import type { Job, View } from "./types"
 import { History } from "./views/History"
+import { Database } from "./views/Database"
 import { LiveJob } from "./views/LiveJob"
 import { NewScrape } from "./views/NewScrape"
 import { Results } from "./views/Results"
@@ -99,6 +100,8 @@ export default function App() {
           <Results initialJobId={resultsJobId} />
         ) : view === "history" ? (
           <History onView={openResults} onStarted={started} />
+        ) : view === "database" ? (
+          <Database />
         ) : (
           <Settings />
         )}

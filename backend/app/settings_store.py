@@ -15,6 +15,10 @@ DEFAULTS = {
     "delay_sec": 2.5,
     "max_pages": 3,
     "headless": True,
+    "proxy_enabled": False,
+    "proxy_url": "",
+    "proxy_username": "",
+    "proxy_password": "",
 }
 
 
@@ -46,3 +50,12 @@ def put(values: dict) -> dict:
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(json.dumps(current, indent=2) + "\n", encoding="utf-8")
     return current
+
+
+def public(values: dict | None = None) -> dict:
+    """Settings for the API. The password stays in the file and is not echoed."""
+    data = dict(values if values is not None else get())
+    secret = data.get("proxy_password") or ""
+    data["proxy_password_set"] = bool(secret)
+    data["proxy_password"] = ""
+    return data

@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react"
 import { Button } from "@/components/ui/button"
 import { ApiError, createJob, listJobs } from "../api"
+import { FollowUpButton } from "../components/FollowUps"
 import { StatusChip } from "../components/StatusChip"
 import { formatWhen, jobMode, sourceLabel } from "../format"
 import type { Job } from "../types"
@@ -92,6 +93,9 @@ export function History({
                   <td className="px-3 py-2 whitespace-nowrap">{formatWhen(job.started_at || job.created_at)}</td>
                   <td className="max-w-[280px] truncate px-3 py-2" title={job.start_url || undefined}>
                     {sourceLabel(job)}
+                    {job.parent_job_id ? (
+                      <div className="text-xs text-muted-foreground">Follow-up of #{job.parent_job_id}</div>
+                    ) : null}
                   </td>
                   <td className="px-3 py-2">
                     <StatusChip job={job} />
@@ -106,6 +110,9 @@ export function History({
                       <Button size="sm" variant="outline" disabled={busyId === job.id} onClick={() => rerun(job)}>
                         {busyId === job.id ? "Starting…" : "Re-run"}
                       </Button>
+                      {job.status === "blocked" ? (
+                        <FollowUpButton jobId={job.id} onQueued={onStarted} />
+                      ) : null}
                     </div>
                   </td>
                 </tr>

@@ -165,6 +165,11 @@ def test_settings_roundtrip(client):
         "delay_sec": 4,
         "max_pages": 2,
         "headless": False,
+        "proxy_enabled": False,
+        "proxy_url": "",
+        "proxy_username": "",
+        "proxy_password": "",
+        "proxy_password_set": False,
     }
     too_fast = client.post(
         "/api/jobs",
