@@ -258,6 +258,20 @@ export function clearProductTcgMatch(productId: number) {
   return api<Product>(`/api/products/${productId}/tcg-match`, { method: "DELETE" })
 }
 
+export function setProductTcgUrl(productId: number, url: string) {
+  return api<Product>(`/api/products/${productId}/tcg-url`, {
+    method: "POST",
+    body: JSON.stringify({ url }),
+  })
+}
+
+export function createManualMatch(amazonUrl: string, tcgUrl: string) {
+  return api<Product>("/api/manual-match", {
+    method: "POST",
+    body: JSON.stringify({ amazon_url: amazonUrl, tcg_url: tcgUrl }),
+  })
+}
+
 export function confirmTcgCandidate(productId: number, candidateId: number) {
   return api<Product>(`/api/products/${productId}/tcg-confirm`, {
     method: "POST",

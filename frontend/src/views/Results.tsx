@@ -13,6 +13,7 @@ import {
 import { ConfirmTcg } from "../components/ConfirmTcg"
 import { ExportGroup } from "../components/ExportMenu"
 import { MatchBanner } from "../components/MatchBanner"
+import { SetTcgUrl } from "../components/SetTcgUrl"
 import { TcgMatchCell } from "../components/TcgMatch"
 import {
   ApiError,
@@ -52,6 +53,7 @@ export function Results({
   const [reloadKey, setReloadKey] = useState(0)
   const [confirmId, setConfirmId] = useState<number | null>(null)
   const [matchJobId, setMatchJobId] = useState<number | null>(null)
+  const [urlTarget, setUrlTarget] = useState<{ id: number; manual: boolean } | null>(null)
   const [queuing, setQueuing] = useState(false)
 
   useEffect(() => {
@@ -176,7 +178,7 @@ export function Results({
   }
 
   const filtering = Boolean(debounced || minRating)
-  const amazonJobs = jobs.filter((job) => job.settings.mode !== "tcgplayer")
+  const amazonJobs = jobs.filter((job) => job.settings.mode !== "tcgplayer" && job.settings.mode !== "manual")
   const hasMatches = items.some((item) => item.tcg_status)
 
   return (
@@ -326,7 +328,7 @@ export function Results({
           Clear matches
         </Button>
         <p className="text-xs text-muted-foreground">
-          Matches every card in this job that fits the search and rating. Cards that already have a match are skipped unless you choose Re-match all.
+          Matches every card in this job that fits the search and rating. Cards that already have a match are skipped unless you choose Re-match all. A manual TCGPlayer URL stays until you clear it.
         </p>
         {matchNote ? <p className="text-sm text-muted-foreground">{matchNote}</p> : null}
       </div>
@@ -407,6 +409,9 @@ export function Results({
                       productId={item.product_id}
                       onConfirm={setConfirmId}
                       onCompare={onCompare}
+                      onSetUrl={(productId) =>
+                        setUrlTarget({ id: productId, manual: item.tcg_match_source === "manual" })
+                      }
                     />
                   </td>
                   <td className="px-3 py-2">{item.page_number ?? "—"}</td>
@@ -440,6 +445,9 @@ export function Results({
                   productId={item.product_id}
                   onConfirm={setConfirmId}
                   onCompare={onCompare}
+                  onSetUrl={(productId) =>
+                    setUrlTarget({ id: productId, manual: item.tcg_match_source === "manual" })
+                  }
                 />
               </div>
             </button>
@@ -454,6 +462,16 @@ export function Results({
         onMatchOne={(productId) => void runMatch(true, [productId])}
         onConfirm={setConfirmId}
         onCompare={onCompare}
+        onSetUrl={(productId, manual) => setUrlTarget({ id: productId, manual })}
+      />
+      <SetTcgUrl
+        productId={urlTarget?.id ?? null}
+        manual={urlTarget?.manual ?? false}
+        onClose={() => setUrlTarget(null)}
+        onSaved={() => {
+          setUrlTarget(null)
+          setReloadKey((value) => value + 1)
+        }}
       />
       <ConfirmTcg
         productId={confirmId}
@@ -500,6 +518,7 @@ function DetailDrawer({
   onMatchOne,
   onConfirm,
   onCompare,
+  onSetUrl,
 }: {
   item: Observation | null
   onClose: () => void
@@ -507,6 +526,7 @@ function DetailDrawer({
   onMatchOne: (productId: number) => void
   onConfirm: (productId: number) => void
   onCompare: (productId: number) => void
+  onSetUrl: (productId: number, manual: boolean) => void
 }) {
   const [product, setProduct] = useState<Product | null>(null)
   const [copyLabel, setCopyLabel] = useState("Copy ASIN")
@@ -637,6 +657,9 @@ function DetailDrawer({
                     productId={item.product_id}
                     onConfirm={onConfirm}
                     onCompare={onCompare}
+                    onSetUrl={(productId) =>
+                      onSetUrl(productId, (product ?? item).tcg_match_source === "manual")
+                    }
                   />
                 </div>
                 {(product ?? item).tcg_query ? (

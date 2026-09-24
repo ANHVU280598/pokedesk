@@ -6,6 +6,7 @@ const ITEMS: { id: View; label: string }[] = [
   { id: "results", label: "Results" },
   { id: "history", label: "History" },
   { id: "database", label: "Database" },
+  { id: "manual", label: "Manual match" },
   { id: "settings", label: "Settings" },
 ]
 

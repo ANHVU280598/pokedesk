@@ -12,6 +12,7 @@ import {
 import { ConfirmTcg } from "../components/ConfirmTcg"
 import { ExportGroup } from "../components/ExportMenu"
 import { MatchBanner } from "../components/MatchBanner"
+import { SetTcgUrl } from "../components/SetTcgUrl"
 import { TcgMatchCell } from "../components/TcgMatch"
 import { CompareList, TcgList } from "./CatalogLists"
 import {
@@ -106,6 +107,7 @@ function Products({
   const [confirmId, setConfirmId] = useState<number | null>(null)
   const [matchJobId, setMatchJobId] = useState<number | null>(null)
   const [queuing, setQueuing] = useState(false)
+  const [urlTarget, setUrlTarget] = useState<{ id: number; manual: boolean } | null>(null)
 
   useEffect(() => {
     const timer = window.setTimeout(() => setDebounced(query.trim()), 200)
@@ -282,7 +284,7 @@ function Products({
           Re-match all
         </Button>
         <p className="text-xs text-muted-foreground">
-          Matches every product in this filtered catalog, not only this page. Products that already have a match are skipped unless you choose Re-match all.
+          Matches every product in this filtered catalog, not only this page. Products that already have a match are skipped unless you choose Re-match all. A manual TCGPlayer URL stays until you clear it.
         </p>
         {matchNote ? <p className="text-sm text-muted-foreground">{matchNote}</p> : null}
       </div>
@@ -332,6 +334,9 @@ function Products({
                       productId={item.id}
                       onConfirm={setConfirmId}
                       onCompare={onCompare}
+                      onSetUrl={(productId) =>
+                        setUrlTarget({ id: productId, manual: item.tcg_match_source === "manual" })
+                      }
                     />
                   </td>
                   <td className="px-3 py-2">{item.observation_count}</td>
@@ -366,6 +371,16 @@ function Products({
         onMatchOne={(productId) => void runMatch(true, [productId])}
         onConfirm={setConfirmId}
         onCompare={onCompare}
+        onSetUrl={(productId, manual) => setUrlTarget({ id: productId, manual })}
+      />
+      <SetTcgUrl
+        productId={urlTarget?.id ?? null}
+        manual={urlTarget?.manual ?? false}
+        onClose={() => setUrlTarget(null)}
+        onSaved={() => {
+          setUrlTarget(null)
+          reload()
+        }}
       />
       <ConfirmTcg
         productId={confirmId}
@@ -388,6 +403,7 @@ function ProductEditor({
   onMatchOne,
   onConfirm,
   onCompare,
+  onSetUrl,
 }: {
   productId: number | null
   onClose: () => void
@@ -395,6 +411,7 @@ function ProductEditor({
   onMatchOne: (productId: number) => void
   onConfirm: (productId: number) => void
   onCompare: (productId: number) => void
+  onSetUrl: (productId: number, manual: boolean) => void
 }) {
   const [product, setProduct] = useState<Product | null>(null)
   const [section, setSection] = useState<"edit" | "observations">("edit")
@@ -554,6 +571,7 @@ function ProductEditor({
                     productId={product.id}
                     onConfirm={onConfirm}
                     onCompare={onCompare}
+                    onSetUrl={(id) => onSetUrl(id, product.tcg_match_source === "manual")}
                   />
                 </div>
                 {product.tcg_query ? (

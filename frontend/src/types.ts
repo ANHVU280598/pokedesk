@@ -8,7 +8,7 @@ export type JobStatus =
 
 export type PaginationMode = "next_page" | "show_more" | "unknown"
 
-export type JobMode = "url" | "search" | "fixture" | "tcgplayer"
+export type JobMode = "url" | "search" | "fixture" | "tcgplayer" | "manual"
 
 export type JobSettings = {
   max_pages: number
@@ -258,6 +258,7 @@ export type PriceCompare = {
   } | null
   difference: number | null
   lower: "amazon" | "tcgplayer" | "same" | null
+  match_source?: string | null
 }
 
 export type DuplicateHint = {
@@ -313,6 +314,6 @@ export type CompareExportRow = {
   lower: "amazon" | "tcgplayer" | "same" | null
 }
 
-export type View = "new" | "live" | "results" | "history" | "settings" | "database" | "compare"
+export type View = "new" | "live" | "results" | "history" | "settings" | "database" | "compare" | "manual"
 
 export type MatchHandoff = { view: "results"; jobId: number } | { view: "database" }

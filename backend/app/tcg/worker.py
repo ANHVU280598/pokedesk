@@ -21,7 +21,11 @@ async def run_tcg_match(job_id: int, settings: dict, session) -> None:
     from app.scraper.runner import sleep_while_running, wait_until_not_paused
 
     product_ids = [int(value) for value in (settings.get("product_ids") or [])]
-    products = db.list_products_by_ids(product_ids)
+    products = [
+        product
+        for product in db.list_products_by_ids(product_ids)
+        if product.get("tcg_match_source") != "manual"
+    ]
     delay = float(settings.get("delay_ms") or 0) / 1000.0
     matched = 0
     confirm = 0
@@ -29,8 +33,13 @@ async def run_tcg_match(job_id: int, settings: dict, session) -> None:
     errors = 0
     total = len(products)
     skipped = int(settings.get("skipped_matched") or 0)
+    skipped_manual = int(settings.get("skipped_manual") or 0)
     if total == 0:
-        db.complete_match_job(job_id, checked=0, message=_summary(0, 0, 0, 0, skipped))
+        db.complete_match_job(
+            job_id,
+            checked=0,
+            message=_summary(0, 0, 0, 0, skipped, skipped_manual),
+        )
         return
 
     blocked = False
@@ -92,7 +101,7 @@ async def run_tcg_match(job_id: int, settings: dict, session) -> None:
         if not db.note_match_progress(job_id, index, message):
             return
 
-    summary = _summary(matched, confirm, unmatched, errors, skipped)
+    summary = _summary(matched, confirm, unmatched, errors, skipped, skipped_manual)
     if blocked:
         summary = f"{summary} Stopped after a TCGPlayer block so the rest of the list was not requested."
     print(f"TCGPlayer match job={job_id} {summary}", flush=True)
@@ -100,12 +109,21 @@ async def run_tcg_match(job_id: int, settings: dict, session) -> None:
     db.complete_match_job(job_id, checked=matched + confirm + unmatched + errors, message=summary)
 
 
-def _summary(matched: int, confirm: int, unmatched: int, errors: int, skipped: int) -> str:
+def _summary(
+    matched: int,
+    confirm: int,
+    unmatched: int,
+    errors: int,
+    skipped: int,
+    skipped_manual: int = 0,
+) -> str:
     text = (
         f"Matched {matched}, needs your pick {confirm}, no match {unmatched}, errors {errors}."
     )
     if skipped:
         text += f" Skipped {skipped} already matched."
+    if skipped_manual:
+        text += f" Skipped {skipped_manual} manual."
     return text
 
 

@@ -6,6 +6,7 @@ import type { Job, MatchHandoff, View } from "./types"
 import { History } from "./views/History"
 import { Compare } from "./views/Compare"
 import { Database } from "./views/Database"
+import { ManualMatch } from "./views/ManualMatch"
 import { LiveJob } from "./views/LiveJob"
 import { NewScrape } from "./views/NewScrape"
 import { Results } from "./views/Results"
@@ -21,7 +22,7 @@ export default function App() {
   const [booted, setBooted] = useState(false)
   const [apiDown, setApiDown] = useState(false)
   const [compareProductId, setCompareProductId] = useState<number | null>(null)
-  const [compareFrom, setCompareFrom] = useState<"results" | "database">("results")
+  const [compareFrom, setCompareFrom] = useState<"results" | "database" | "manual">("results")
   const matchHandoff = useRef<{ matchJobId: number; returnTo: MatchHandoff } | null>(null)
 
   const boot = useCallback(async () => {
@@ -68,7 +69,7 @@ export default function App() {
     setView("results")
   }
 
-  function openCompare(productId: number, from: "results" | "database") {
+  function openCompare(productId: number, from: "results" | "database" | "manual") {
     setCompareProductId(productId)
     setCompareFrom(from)
     setView("compare")
@@ -127,6 +128,8 @@ export default function App() {
           <History onView={openResults} onStarted={started} />
         ) : view === "database" ? (
           <Database onCompare={(productId) => openCompare(productId, "database")} />
+        ) : view === "manual" ? (
+          <ManualMatch onCompare={(productId) => openCompare(productId, "manual")} />
         ) : view === "compare" ? (
           <Compare productId={compareProductId} onBack={() => setView(compareFrom)} />
         ) : (

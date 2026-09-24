@@ -46,7 +46,8 @@ export function jobMode(job: Job): JobMode {
     job.settings.mode === "url" ||
     job.settings.mode === "search" ||
     job.settings.mode === "fixture" ||
-    job.settings.mode === "tcgplayer"
+    job.settings.mode === "tcgplayer" ||
+    job.settings.mode === "manual"
   ) {
     return job.settings.mode
   }
@@ -56,6 +57,7 @@ export function jobMode(job: Job): JobMode {
 }
 
 export function sourceLabel(job: Job) {
+  if (jobMode(job) === "manual") return "Manual Amazon page"
   if (jobMode(job) === "tcgplayer") {
     const source = job.settings.source_job_id
     return source ? `TCGPlayer match · job ${source}` : "TCGPlayer match"

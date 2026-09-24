@@ -84,3 +84,12 @@ class ProductTcgMatch(BaseModel):
 
 class TcgConfirm(BaseModel):
     candidate_id: int
+
+
+class TcgUrlBody(BaseModel):
+    url: str = Field(min_length=1, max_length=500)
+
+
+class ManualPairBody(BaseModel):
+    amazon_url: str = Field(min_length=1, max_length=500)
+    tcg_url: str = Field(min_length=1, max_length=500)

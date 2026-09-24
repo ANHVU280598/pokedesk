@@ -927,6 +927,16 @@ def get_product(product_id: int) -> dict | None:
             """,
             (product_id,),
         ).fetchall()
+        price_rows = conn.execute(
+            """
+            SELECT tcg_url, tcg_product_id, price, price_label, currency, prices_json, scraped_at
+            FROM tcgplayer_price_history
+            WHERE product_id = ?
+            ORDER BY scraped_at DESC, id DESC
+            LIMIT 20
+            """,
+            (product_id,),
+        ).fetchall()
     product = dict(row)
     history = []
     for obs in observations:
@@ -936,6 +946,7 @@ def get_product(product_id: int) -> dict | None:
     product["observations"] = history
     product.update(_match_public(match))
     product["tcg_candidates"] = [_candidate_public(row) for row in candidate_rows]
+    product["tcg_price_history"] = [_price_point(item) for item in price_rows]
     return product
 
 
@@ -1101,6 +1112,7 @@ def product_compare(product_id: int) -> dict | None:
         },
         "difference": difference,
         "lower": lower,
+        "match_source": product.get("tcg_match_source") if matched else None,
     }
 
 
@@ -1135,7 +1147,7 @@ def list_match_products(
     with _tx() as conn:
         rows = conn.execute(
             f"""
-            SELECT p.id, p.title, m.status AS tcg_status
+            SELECT p.id, p.title, m.status AS tcg_status, m.match_source AS tcg_match_source
             FROM scrape_observations o
             JOIN products p ON p.id = o.product_id
             LEFT JOIN tcgplayer_matches m ON m.product_id = p.id
@@ -1178,7 +1190,7 @@ def list_catalog_match_products(
     with _tx() as conn:
         rows = conn.execute(
             f"""
-            SELECT p.id, p.title, m.status AS tcg_status
+            SELECT p.id, p.title, m.status AS tcg_status, m.match_source AS tcg_match_source
             FROM products p
             LEFT JOIN tcgplayer_matches m ON m.product_id = p.id
             WHERE {clause}
@@ -1203,7 +1215,12 @@ def list_products_by_ids(product_ids: list[int]) -> list[dict]:
     placeholders = ",".join("?" * len(unique))
     with _tx() as conn:
         rows = conn.execute(
-            f"SELECT id, title FROM products WHERE id IN ({placeholders})",
+            f"""
+            SELECT p.id, p.title, m.match_source AS tcg_match_source
+            FROM products p
+            LEFT JOIN tcgplayer_matches m ON m.product_id = p.id
+            WHERE p.id IN ({placeholders})
+            """,
             unique,
         ).fetchall()
     by_id = {int(row["id"]): dict(row) for row in rows}
@@ -1238,7 +1255,7 @@ def products_are_fixture_only(product_ids: list[int]) -> bool:
 def upsert_tcg_match(
     *,
     product_id: int,
-    job_id: int,
+    job_id: int | None,
     query: str,
     status: str,
     tcg_url: str | None,
@@ -1253,8 +1270,9 @@ def upsert_tcg_match(
     candidates: list[dict],
     match_source: str | None = None,
     error_text: str | None = None,
+    matched_at: str | None = None,
 ) -> None:
-    now = utcnow()
+    now = matched_at or utcnow()
     with _tx() as conn:
         conn.execute(
             """
@@ -1322,6 +1340,119 @@ def upsert_tcg_match(
                     position,
                 ),
             )
+
+
+def store_manual_amazon(card: dict) -> int:
+    """Save one scraped Amazon product page as its own completed snapshot.
+
+    An existing ASIN is updated and keeps older observations. A new ASIN is created.
+    """
+    now = utcnow()
+    settings = {"mode": "manual", "headless": True, "max_pages": 1, "delay_ms": 0}
+    with _tx() as conn:
+        cur = conn.execute(
+            """
+            INSERT INTO scrape_jobs (
+              start_url, search_query, search_terms, status, pagination_mode,
+              pages_visited, items_scraped, started_at, finished_at,
+              settings_json, created_at, updated_at
+            ) VALUES (?, 'Manual Amazon page', 'manual', 'completed', 'unknown',
+                      1, 1, ?, ?, ?, ?, ?)
+            """,
+            (
+                card.get("product_url"),
+                now,
+                now,
+                json.dumps(settings),
+                now,
+                now,
+            ),
+        )
+        job_id = int(cur.lastrowid)
+    return upsert_card(job_id, card)
+
+
+def save_manual_tcg(product_id: int, parsed: dict) -> dict:
+    """Store a user-supplied TCGPlayer page as a confirmed manual match."""
+    if get_product(product_id) is None:
+        raise LookupError(product_id)
+    now = utcnow()
+    prices = parsed.get("prices") or []
+    upsert_tcg_match(
+        product_id=product_id,
+        job_id=None,
+        query=parsed.get("url") or "",
+        status="matched",
+        tcg_url=parsed.get("url"),
+        tcg_name=parsed.get("name"),
+        tcg_set=parsed.get("set_name"),
+        image_url=parsed.get("image_url"),
+        price=parsed.get("price"),
+        price_label=parsed.get("price_label"),
+        currency=parsed.get("currency") or "USD",
+        confidence=None,
+        raw={
+            "manual": True,
+            "tcg_product_id": parsed.get("tcg_product_id"),
+            "prices": prices,
+            "scraped_at": now,
+        },
+        candidates=[
+            {
+                "name": parsed.get("name") or "TCGPlayer listing",
+                "set_name": parsed.get("set_name"),
+                "url": parsed.get("url") or "",
+                "image_url": parsed.get("image_url"),
+                "price": parsed.get("price"),
+                "price_label": parsed.get("price_label"),
+                "currency": parsed.get("currency") or "USD",
+                "prices": prices,
+                "confidence": 0,
+            }
+        ],
+        match_source="manual",
+        error_text=None,
+        matched_at=now,
+    )
+    with _tx() as conn:
+        conn.execute(
+            """
+            INSERT INTO tcgplayer_price_history (
+              product_id, tcg_url, tcg_product_id, price, price_label, currency,
+              prices_json, scraped_at
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            (
+                product_id,
+                parsed.get("url") or "",
+                parsed.get("tcg_product_id"),
+                parsed.get("price"),
+                parsed.get("price_label"),
+                parsed.get("currency") or "USD",
+                json.dumps(prices),
+                now,
+            ),
+        )
+    product = get_product(product_id)
+    assert product is not None
+    return product
+
+
+def _price_point(row: sqlite3.Row) -> dict:
+    raw = row["prices_json"]
+    try:
+        prices = json.loads(raw) if raw else []
+    except json.JSONDecodeError:
+        prices = []
+    return {
+        "tcg_url": row["tcg_url"],
+        "tcg_product_id": row["tcg_product_id"],
+        "price": row["price"],
+        "price_label": row["price_label"],
+        "currency": row["currency"],
+        "prices": prices if isinstance(prices, list) else [],
+        "scraped_at": row["scraped_at"],
+    }
 
 
 def clear_tcg_match(product_id: int) -> None:

@@ -2,17 +2,22 @@
 
 from __future__ import annotations
 
+import logging
+
 from fastapi import APIRouter, HTTPException, Request
 from fastapi.responses import Response
 
 from app import db, exports, followups, settings_store
+from app.manual_match import ManualError, link_pair, link_tcg_url
 from app.schemas import (
     FollowUpCreate,
     JobCreate,
+    ManualPairBody,
     ProductMerge,
     ProductTcgMatch,
     ProductUpdate,
     TcgConfirm,
+    TcgUrlBody,
     RecheckBody,
     SettingsUpdate,
     TcgMatchBody,
@@ -27,6 +32,7 @@ from app.service import (
 )
 
 router = APIRouter(prefix="/api")
+log = logging.getLogger("app.manual")
 
 SORTS = {"page", "recent", "price_asc", "price_desc", "rating", "bought"}
 
@@ -219,7 +225,7 @@ async def start_job_tcg_match(
         order = {int(pid): index for index, pid in enumerate(wanted)}
         rows = [row for row in rows if int(row["id"]) in order]
         rows.sort(key=lambda row: order[int(row["id"])])
-    kept, skipped = rows_to_match(rows, rematch=payload.rematch or single)
+    kept, skipped, skipped_manual = rows_to_match(rows, rematch=payload.rematch or single)
     fixture = (job.get("settings") or {}).get("mode") == "fixture"
     try:
         spec = compose_tcg_match_job(
@@ -228,12 +234,13 @@ async def start_job_tcg_match(
             fixture=fixture,
             source_job_id=job_id,
             skipped_matched=skipped,
+            skipped_manual=skipped_manual,
         )
     except ValueError as exc:
         raise HTTPException(400, str(exc)) from exc
     created = db.create_job(**spec)
     print(
-        f"TCGPlayer match queued job={created['id']} products={len(kept)} skipped={skipped} source={job_id}",
+        f"TCGPlayer match queued job={created['id']} products={len(kept)} skipped={skipped} manual={skipped_manual} source={job_id}",
         flush=True,
     )
     request.app.state.runner.notify()
@@ -317,7 +324,7 @@ async def start_product_tcg_match(body: ProductTcgMatch, request: Request) -> di
             last_seen_before=before,
         )
         ids_for_fixture = [int(row["id"]) for row in rows]
-    kept, skipped = rows_to_match(rows, rematch=body.rematch or single)
+    kept, skipped, skipped_manual = rows_to_match(rows, rematch=body.rematch or single)
     try:
         spec = compose_tcg_match_job(
             products=kept,
@@ -325,12 +332,13 @@ async def start_product_tcg_match(body: ProductTcgMatch, request: Request) -> di
             fixture=db.products_are_fixture_only(ids_for_fixture) if ids_for_fixture else False,
             source_job_id=None,
             skipped_matched=skipped,
+            skipped_manual=skipped_manual,
         )
     except ValueError as exc:
         raise HTTPException(400, str(exc)) from exc
     created = db.create_job(**spec)
     print(
-        f"TCGPlayer match queued job={created['id']} products={len(kept)} skipped={skipped} catalog=1",
+        f"TCGPlayer match queued job={created['id']} products={len(kept)} skipped={skipped} manual={skipped_manual} catalog=1",
         flush=True,
     )
     request.app.state.runner.notify()
@@ -357,6 +365,46 @@ async def patch_product(product_id: int, body: ProductUpdate) -> dict:
             category_breadcrumbs=body.category_breadcrumbs,
         )
     )
+
+
+@router.post("/products/{product_id}/tcg-url")
+async def set_product_tcg_url(product_id: int, body: TcgUrlBody) -> dict:
+    try:
+        return await link_tcg_url(product_id, body.url)
+    except LookupError as exc:
+        raise HTTPException(404, "Product not found") from exc
+    except ManualError as exc:
+        _log_manual(exc)
+        raise HTTPException(400, str(exc)) from exc
+    except Exception as exc:
+        _log_manual(exc)
+        raise HTTPException(400, _short_error(exc)) from exc
+
+
+@router.post("/manual-match", status_code=201)
+async def create_manual_match(body: ManualPairBody) -> dict:
+    try:
+        product = await link_pair(body.amazon_url, body.tcg_url)
+    except ManualError as exc:
+        _log_manual(exc)
+        raise HTTPException(400, str(exc)) from exc
+    except Exception as exc:
+        _log_manual(exc)
+        raise HTTPException(400, _short_error(exc)) from exc
+    return product
+
+
+def _log_manual(exc: Exception) -> None:
+    message = _short_error(exc)
+    print(f"Manual TCGPlayer match failed: {message}", flush=True)
+    log.error("Manual TCGPlayer match failed: %s", message, exc_info=exc)
+
+
+def _short_error(exc: Exception) -> str:
+    text = " ".join((str(exc).strip() or exc.__class__.__name__).split())
+    if len(text) > 400:
+        return text[:397] + "..."
+    return text
 
 
 @router.post("/products/{product_id}/tcg-confirm")

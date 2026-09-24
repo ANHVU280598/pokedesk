@@ -58,6 +58,9 @@ export function Compare({
       {page ? (
         <>
           <p className="mb-4 text-sm font-medium">{summary(page)}</p>
+          {page.match_source === "manual" ? (
+            <p className="mb-4 text-sm text-muted-foreground">Manual match. Batch matching will not replace this link.</p>
+          ) : null}
           <div className="grid gap-4 md:grid-cols-2">
             <Side
               source="Amazon"

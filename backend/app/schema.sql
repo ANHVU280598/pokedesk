@@ -115,3 +115,18 @@ CREATE TABLE IF NOT EXISTS tcgplayer_candidates (
 );
 
 CREATE INDEX IF NOT EXISTS ix_tcg_candidates_product ON tcgplayer_candidates(product_id);
+
+CREATE TABLE IF NOT EXISTS tcgplayer_price_history (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  product_id INTEGER NOT NULL REFERENCES products(id) ON DELETE CASCADE,
+  tcg_url TEXT NOT NULL,
+  tcg_product_id TEXT,
+  price REAL,
+  price_label TEXT,
+  currency TEXT,
+  prices_json TEXT,
+  scraped_at TEXT NOT NULL
+);
+
+CREATE INDEX IF NOT EXISTS ix_tcg_price_history_product
+  ON tcgplayer_price_history(product_id, scraped_at);

@@ -18,6 +18,40 @@ export function TcgMatchCell({
   productId,
   onConfirm,
   onCompare,
+  onSetUrl,
+}: {
+  match: TcgFields
+  productId?: number
+  onConfirm?: (productId: number) => void
+  onCompare?: (productId: number) => void
+  onSetUrl?: (productId: number) => void
+}) {
+  return (
+    <span className="block max-w-[240px]">
+      <MatchBody match={match} productId={productId} onConfirm={onConfirm} onCompare={onCompare} />
+      {productId != null && onSetUrl ? (
+        <Button
+          type="button"
+          size="sm"
+          variant="outline"
+          className="mt-1"
+          onClick={(event) => {
+            event.stopPropagation()
+            onSetUrl(productId)
+          }}
+        >
+          Set TCGPlayer URL
+        </Button>
+      ) : null}
+    </span>
+  )
+}
+
+function MatchBody({
+  match,
+  productId,
+  onConfirm,
+  onCompare,
 }: {
   match: TcgFields
   productId?: number
@@ -29,7 +63,7 @@ export function TcgMatchCell({
   }
   if (match.tcg_status === "error") {
     return (
-      <span className="block max-w-[220px] text-rose-800">
+      <span className="block text-rose-800">
         <span className="block text-xs font-medium">Error</span>
         <span className="block text-xs">{match.tcg_error || "TCGPlayer lookup failed."}</span>
       </span>
@@ -86,6 +120,9 @@ export function TcgMatchCell({
       {price ? <span className="block text-xs text-muted-foreground">{price}</span> : null}
       {match.tcg_match_source === "auto" ? (
         <span className="block text-xs text-muted-foreground">Auto</span>
+      ) : null}
+      {match.tcg_match_source === "manual" ? (
+        <span className="block text-xs text-muted-foreground">Manual</span>
       ) : null}
       {productId != null && (onCompare || onConfirm) ? (
         <span className="mt-1 flex flex-wrap gap-1">
