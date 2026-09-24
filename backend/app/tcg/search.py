@@ -2,10 +2,15 @@
 
 An empty search, or a hit that does not share a distinctive name token with
 the Amazon title, stays unmatched. Nothing here invents a listing.
+
+Live search reads the public JSON document the TCGPlayer results page requests.
+A JavaScript shell, or any body that is not that document, is not an empty
+search.
 """
 
 from __future__ import annotations
 
+import json
 import re
 from urllib.parse import quote_plus, urljoin
 
@@ -51,10 +56,30 @@ _GENERIC = {
     "etb",
 }
 _BASE = "https://www.tcgplayer.com"
+_CATALOG = "https://mp-search-api.tcgplayer.com/v1/search/request"
+SHELL_MESSAGE = "TCGPlayer search returned no results page"
 TCG_READY = (
     "article.tcg-result, a[href*='/product/'], "
     "#challenge-running, form[action*='challenge'], .cf-error-details"
 )
+_RESULTS_HEADING = re.compile(r"\b\d+\s+results?\s+for\b", re.IGNORECASE)
+_CATALOG_BODY = {
+    "algorithm": "sales_dismax",
+    "from": 0,
+    "size": 24,
+    "filters": {"term": {"productLineName": ["pokemon"]}, "range": {}, "match": {}},
+    "listingSearch": {
+        "context": {"cart": {"packages": {}}},
+        "filters": {
+            "term": {"sellerStatus": "Live", "channelId": 0},
+            "range": {"quantity": {"gte": 1}},
+            "exclude": {"channelExclusion": 0},
+        },
+    },
+    "context": {"cart": {"packages": {}}, "shippingCountry": "US", "userProfile": {}},
+    "settings": {"useFuzzySearch": True, "didYouMean": {}},
+    "sort": {},
+}
 
 
 def search_query(title: str) -> str:
@@ -73,6 +98,33 @@ def search_url(query: str) -> str:
         "https://www.tcgplayer.com/search/pokemon/product"
         f"?productLineName=pokemon&view=grid&q={quote_plus(query)}"
     )
+
+
+def catalog_request(query: str) -> tuple[str, str, dict[str, str]]:
+    """The POST the results page sends. No login cookie is required."""
+    url = f"{_CATALOG}?q={quote_plus(query)}&isList=false"
+    payload = json.dumps(_CATALOG_BODY, separators=(",", ":"))
+    headers = {
+        "accept": "application/json, text/plain, */*",
+        "content-type": "application/json",
+        "origin": _BASE,
+        "referer": search_url(query),
+    }
+    return url, payload, headers
+
+
+def read_match_input(body: str, *, catalog: bool) -> list[dict] | None:
+    """Return hits, an empty list, or None when the body is not a results page.
+
+    None means the caller should store an error. An empty list is a real
+    search that listed nothing. Fixture HTML stays on the empty-list path.
+    """
+    text = body or ""
+    if catalog:
+        return _hits_from_catalog(text)
+    if _html_is_shell(text):
+        return None
+    return parse_results(text)
 
 
 def tokens(text: str) -> list[str]:
@@ -187,6 +239,104 @@ def _unmatched(query: str, result_count: int = 0) -> dict:
         "candidates": [],
         "raw": {"result_count": result_count, "candidate_count": 0},
     }
+
+
+def _hits_from_catalog(body: str) -> list[dict] | None:
+    try:
+        data = json.loads(body)
+    except json.JSONDecodeError:
+        return None
+    if not isinstance(data, dict):
+        return None
+    buckets = data.get("results")
+    if not isinstance(buckets, list) or not buckets or not isinstance(buckets[0], dict):
+        return None
+    bucket = buckets[0]
+    items = bucket.get("results")
+    if not isinstance(items, list):
+        return None
+    hits: list[dict] = []
+    seen: set[str] = set()
+    for item in items:
+        hit = _from_catalog_item(item)
+        if hit is None or hit["url"] in seen:
+            continue
+        seen.add(hit["url"])
+        hits.append(hit)
+        if len(hits) >= 8:
+            break
+    total = bucket.get("totalResults")
+    if total and not hits:
+        return None
+    return hits
+
+
+def _from_catalog_item(item) -> dict | None:
+    if not isinstance(item, dict):
+        return None
+    name = " ".join(str(item.get("productName") or "").split())
+    product_id = _product_id(item.get("productId"))
+    if len(name) < 3 or product_id is None:
+        return None
+    set_name = " ".join(str(item.get("setName") or "").split()) or None
+    prices: list[dict] = []
+    market = _amount(item.get("marketPrice"))
+    low = _amount(item.get("lowestPrice"))
+    if market is not None:
+        prices.append({"label": "Market", "amount": market})
+    if low is not None:
+        prices.append({"label": "Low", "amount": low})
+    primary = _primary_price(prices)
+    return {
+        "name": name[:200],
+        "url": _catalog_url(product_id, item),
+        "set_name": set_name,
+        "image_url": None,
+        "prices": prices,
+        "price": None if primary is None else primary["amount"],
+        "price_label": None if primary is None else primary["label"],
+        "currency": "USD",
+    }
+
+
+def _catalog_url(product_id: str, item: dict) -> str:
+    parts = [
+        _slug(item.get("productLineUrlName")),
+        _slug(item.get("setUrlName")),
+        _slug(item.get("productUrlName")),
+    ]
+    slug = "-".join(part for part in parts if part)
+    if slug:
+        return f"{_BASE}/product/{product_id}/{slug}"
+    return f"{_BASE}/product/{product_id}"
+
+
+def _product_id(value) -> str | None:
+    if isinstance(value, bool) or value is None:
+        return None
+    if isinstance(value, (int, float)):
+        number = int(value)
+        return str(number) if number > 0 else None
+    text = str(value).strip()
+    return text if text.isdigit() else None
+
+
+def _amount(value) -> float | None:
+    if isinstance(value, bool) or not isinstance(value, (int, float)):
+        return None
+    return round(float(value), 2)
+
+
+def _slug(value) -> str:
+    return re.sub(r"[^a-z0-9]+", "-", str(value or "").lower()).strip("-")
+
+
+def _html_is_shell(html: str) -> bool:
+    """True for the unloaded app shell, false for fixture HTML and a real results page."""
+    low = (html or "").lower()
+    if "tcg-result" in low or _RESULTS_HEADING.search(html or ""):
+        return False
+    return "<script" in low
 
 
 def _from_article(article) -> dict | None:

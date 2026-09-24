@@ -10,7 +10,15 @@ from __future__ import annotations
 import logging
 
 from app import db
-from app.tcg.search import TCG_READY, choose_match, page_is_blocked, parse_results, search_query, search_url
+from app.tcg.search import (
+    SHELL_MESSAGE,
+    TCG_READY,
+    choose_match,
+    page_is_blocked,
+    read_match_input,
+    search_query,
+    search_url,
+)
 
 log = logging.getLogger("app.tcg")
 
@@ -56,7 +64,7 @@ async def run_tcg_match(job_id: int, settings: dict, session) -> None:
         if not db.note_match_progress(job_id, index - 1, f"{message}: {query}"):
             return
         try:
-            html = await _fetch(session, query)
+            body, catalog = await _fetch(session, query)
         except Exception as exc:
             errors += 1
             detail = _short(exc)
@@ -66,14 +74,22 @@ async def run_tcg_match(job_id: int, settings: dict, session) -> None:
                 return
             continue
         status_code = getattr(session, "last_status", None)
-        if page_is_blocked(html, status_code):
+        if _response_is_blocked(body, status_code, catalog=catalog):
             errors += 1
             blocked = True
             _log_row(product, BLOCK_MESSAGE)
             _store_error(job_id, product, query, BLOCK_MESSAGE)
             db.note_match_progress(job_id, index, f"{message}: {BLOCK_MESSAGE}")
             break
-        decision = choose_match(query, parse_results(html))
+        hits = read_match_input(body, catalog=catalog)
+        if hits is None:
+            errors += 1
+            _log_row(product, SHELL_MESSAGE)
+            _store_error(job_id, product, query, SHELL_MESSAGE)
+            if not db.note_match_progress(job_id, index, f"{message}: {SHELL_MESSAGE}"):
+                return
+            continue
+        decision = choose_match(query, hits)
         if decision["status"] == "matched":
             matched += 1
         elif decision["status"] == "needs_confirm":
@@ -154,11 +170,30 @@ def _log_row(product: dict, detail: str) -> None:
     log.error(line)
 
 
-async def _fetch(session, query: str) -> str:
+async def _fetch(session, query: str) -> tuple[str, bool]:
+    """Return the response body and whether it came from the catalog request.
+
+    Fixture sessions still return saved HTML. A live session posts the same
+    search request the results page posts, on the browser context already
+    open for this job.
+    """
+    catalog = getattr(session, "search_catalog", None)
+    if catalog is not None:
+        return await catalog(query), True
     search = getattr(session, "search", None)
     if search is not None:
-        return await search(query)
-    return await session.get(search_url(query), ready=TCG_READY)
+        return await search(query), False
+    return await session.get(search_url(query), ready=TCG_READY), False
+
+
+def _response_is_blocked(body: str, status: int | None, *, catalog: bool) -> bool:
+    if status in {403, 429, 503}:
+        return True
+    # Seller text inside a catalog document can mention a challenge. Only the
+    # HTTP status, or an HTML challenge page, stops the batch.
+    if catalog and not (body or "").lstrip().startswith("<"):
+        return False
+    return page_is_blocked(body, None)
 
 
 def _short(exc: Exception) -> str:

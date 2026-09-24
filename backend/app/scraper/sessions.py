@@ -127,6 +127,26 @@ class PlaywrightSession:
             await session.close()
             raise
 
+    async def search_catalog(self, query: str) -> str:
+        """POST TCGPlayer's public search on this job's browser context.
+
+        One context is reused for every product in the job. This does not open
+        another browser, and it does not click or scroll the results page.
+        """
+        from app.tcg.search import catalog_request
+
+        assert self._context is not None
+        url, payload, headers = catalog_request(query)
+        response = await self._context.request.post(
+            url,
+            data=payload,
+            headers=headers,
+            timeout=20_000,
+        )
+        self.last_status = response.status
+        self._url = url
+        return await response.text()
+
     async def get(self, url: str, *, ready: str | None = None) -> str:
         """Load a URL on the existing page. Does not open a browser, context, or page.
 

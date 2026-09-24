@@ -2,7 +2,14 @@ import asyncio
 import threading
 import time
 
-from app.tcg.search import choose_match, page_is_blocked, parse_results, search_query
+from app.tcg.search import (
+    SHELL_MESSAGE,
+    choose_match,
+    page_is_blocked,
+    parse_results,
+    read_match_input,
+    search_query,
+)
 from app.tcg.session import TcgFixtureSession, fixture_html
 
 
@@ -56,6 +63,64 @@ def test_choose_match_skips_empty_and_unrelated_hits():
     assert several["status"] == "needs_confirm"
     assert several["tcg_url"] is None
     assert len(several["candidates"]) == 2
+
+
+def _catalog(items: list[dict], total: int | None = None) -> str:
+    return (
+        '{"errors":[],"results":[{"results":'
+        + __import__("json").dumps(items)
+        + ',"totalResults":'
+        + str(len(items) if total is None else total)
+        + "}]}"
+    )
+
+
+def test_catalog_json_is_a_result_set_and_a_script_shell_is_not():
+    payload = _catalog(
+        [
+            {
+                "productId": 478258,
+                "productName": "Scarlet & Violet Booster Bundle",
+                "setName": "Scarlet & Violet",
+                "productLineUrlName": "Pokemon",
+                "setUrlName": "Scarlet and Violet",
+                "productUrlName": "Scarlet and Violet Booster Bundle",
+                "marketPrice": 104.72,
+                "lowestPrice": 99.99,
+            },
+            {
+                "productId": 476452,
+                "productName": "Scarlet & Violet Booster Box",
+                "setName": "Scarlet & Violet",
+                "productLineUrlName": "Pokemon",
+                "setUrlName": "Scarlet and Violet",
+                "productUrlName": "Scarlet and Violet Booster Box",
+                "marketPrice": 295.43,
+                "lowestPrice": 287.01,
+            },
+        ]
+    )
+    hits = read_match_input(payload, catalog=True)
+    assert hits is not None and len(hits) == 2
+    assert hits[0]["url"] == (
+        "https://www.tcgplayer.com/product/478258/pokemon-scarlet-and-violet-scarlet-and-violet-booster-bundle"
+    )
+    assert hits[0]["price"] == 104.72
+    assert hits[0]["price_label"] == "Market"
+    several = choose_match("Scarlet Violet Booster Bundle", hits)
+    assert several["status"] == "needs_confirm"
+    assert several["tcg_url"] is None
+
+    empty = read_match_input(_catalog([], total=0), catalog=True)
+    assert empty == []
+    assert choose_match("zzzznotapokemonitem999", empty)["status"] == "unmatched"
+
+    shell = "<html><body><script src=\"/app.js\"></script><div id=\"root\"></div></body></html>"
+    assert read_match_input(shell, catalog=False) is None
+    assert read_match_input(shell, catalog=True) is None
+    assert read_match_input("<html>not json</html>", catalog=True) is None
+    assert read_match_input(fixture_html("Sleeves"), catalog=False) == []
+    assert SHELL_MESSAGE == "TCGPlayer search returned no results page"
 
 
 def test_blocked_page_is_detected_without_treating_a_normal_miss_as_a_block():
@@ -211,6 +276,26 @@ def _fixture_amazon(client):
     )
     assert created.status_code == 201, created.text
     return _wait(client, created.json()["id"], lambda item: item["status"] == "completed")
+
+
+def test_js_shell_is_stored_as_an_error_and_not_as_no_match(client, monkeypatch):
+    amazon = _fixture_amazon(client)
+
+    async def shell(self, query: str) -> str:
+        self.last_status = 200
+        return "<html><body><script src=\"/app.js\"></script><div id=\"root\"></div></body></html>"
+
+    monkeypatch.setattr(TcgFixtureSession, "search", shell)
+    match = client.post(f"/api/jobs/{amazon['id']}/tcg-match")
+    assert match.status_code == 201, match.text
+    finished = _wait(client, match.json()["id"], lambda item: item["status"] == "completed")
+    assert finished["status"] == "completed"
+    assert "errors 4" in finished["error_message"]
+    assert "no match 0" in finished["error_message"]
+    rows = client.get(f"/api/jobs/{amazon['id']}/observations").json()["items"]
+    assert rows
+    assert all(item["tcg_status"] == "error" for item in rows)
+    assert all(item["tcg_error"] == SHELL_MESSAGE for item in rows)
 
 
 def test_one_row_error_does_not_stop_the_rest_of_the_list(client, monkeypatch):
