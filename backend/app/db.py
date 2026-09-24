@@ -55,6 +55,11 @@ def _migrate(conn: sqlite3.Connection) -> None:
         )
     if "queue_at" not in columns:
         conn.execute("ALTER TABLE scrape_jobs ADD COLUMN queue_at TEXT")
+    obs_columns = {row["name"] for row in conn.execute("PRAGMA table_info(scrape_observations)")}
+    if "source" not in obs_columns:
+        conn.execute(
+            "ALTER TABLE scrape_observations ADD COLUMN source TEXT NOT NULL DEFAULT 'results'"
+        )
     conn.execute(
         "CREATE INDEX IF NOT EXISTS ix_jobs_parent ON scrape_jobs(parent_job_id)"
     )
@@ -678,14 +683,25 @@ def _upsert_observation(
     now: str,
 ) -> None:
     badges = card.get("badges") or []
+    source = card.get("source") or "results"
+    if source not in {"results", "related"}:
+        source = "results"
     raw = dict(card)
+    raw["source"] = source
     raw["observed_at"] = now
+    existing = conn.execute(
+        "SELECT source FROM scrape_observations WHERE job_id = ? AND product_id = ?",
+        (job_id, product_id),
+    ).fetchone()
+    if existing is not None and existing["source"] == "results" and source == "related":
+        return
     conn.execute(
         """
         INSERT INTO scrape_observations (
           job_id, product_id, price, currency, list_price, rating, review_count,
-          badges_json, availability_snippet, seller, raw_json, observed_at, page_number
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+          badges_json, availability_snippet, seller, raw_json, observed_at, page_number,
+          source
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         ON CONFLICT(job_id, product_id) DO UPDATE SET
           price = excluded.price,
           currency = excluded.currency,
@@ -697,7 +713,8 @@ def _upsert_observation(
           seller = excluded.seller,
           raw_json = excluded.raw_json,
           observed_at = excluded.observed_at,
-          page_number = excluded.page_number
+          page_number = excluded.page_number,
+          source = excluded.source
         """,
         (
             job_id,
@@ -713,6 +730,7 @@ def _upsert_observation(
             json.dumps(raw),
             now,
             card.get("page_number"),
+            source,
         ),
     )
 
@@ -768,6 +786,7 @@ def list_observations(
             SELECT o.id AS observation_id, o.job_id, o.product_id, o.price, o.currency,
                    o.list_price, o.rating, o.review_count, o.badges_json,
                    o.availability_snippet, o.seller, o.observed_at, o.page_number,
+                   o.source,
                    p.asin, p.title, p.image_url, p.product_url, p.category_breadcrumbs
             FROM scrape_observations o
             JOIN products p ON p.id = o.product_id
@@ -810,6 +829,26 @@ def get_product(product_id: int) -> dict | None:
         history.append(item)
     product["observations"] = history
     return product
+
+
+def list_result_cards(job_id: int, limit: int) -> list[dict]:
+    """Earliest search-result cards from this job that have a product URL."""
+    with _tx() as conn:
+        rows = conn.execute(
+            """
+            SELECT p.asin, p.title, p.product_url
+            FROM scrape_observations o
+            JOIN products p ON p.id = o.product_id
+            WHERE o.job_id = ?
+              AND COALESCE(o.source, 'results') = 'results'
+              AND p.product_url IS NOT NULL
+              AND p.product_url != ''
+            ORDER BY o.page_number IS NULL, o.page_number ASC, o.id ASC
+            LIMIT ?
+            """,
+            (job_id, limit),
+        ).fetchall()
+    return [dict(row) for row in rows]
 
 
 def _badges(raw: str | None) -> list:
@@ -1186,6 +1225,14 @@ def _prefer_keep(members: list[dict]) -> dict:
     if len(with_asin) == 1:
         return with_asin[0]
     return max(members, key=lambda item: (int(item["observation_count"]), -int(item["id"])))
+
+
+def recount_items(job_id: int) -> None:
+    """Refresh items_scraped so a later recheck can tell new pages from related cards."""
+    with _tx() as conn:
+        if _get(conn, job_id) is None:
+            return
+        _recount_job(conn, job_id)
 
 
 def _recount_job(conn: sqlite3.Connection, job_id: int) -> None:

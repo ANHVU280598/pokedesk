@@ -227,7 +227,14 @@ export function Results({
                   <td className="px-3 py-2">
                     <div className="flex items-center gap-3">
                       <Thumb src={item.image_url} />
-                      <span className="line-clamp-2 font-medium">{item.title}</span>
+                      <span className="min-w-0">
+                        <span className="line-clamp-2 font-medium">{item.title}</span>
+                        {item.source === "related" ? (
+                          <Badge variant="secondary" className="mt-1">
+                            Related
+                          </Badge>
+                        ) : null}
+                      </span>
                     </div>
                   </td>
                   <td className="px-3 py-2 font-mono text-xs">{item.asin || "—"}</td>
@@ -253,6 +260,7 @@ export function Results({
               <Thumb src={item.image_url} large />
               <div className="space-y-1 p-3">
                 <p className="line-clamp-2 text-sm font-medium">{item.title}</p>
+                {item.source === "related" ? <Badge variant="secondary">Related</Badge> : null}
                 <p className="text-sm">{formatMoney(item.price, item.currency)}</p>
                 <p className="text-xs text-muted-foreground">
                   {formatRating(item.rating)} · {formatCount(item.review_count)} reviews
@@ -340,6 +348,11 @@ function DetailDrawer({
       <SheetContent className="overflow-y-auto" style={{ maxWidth: 440 }}>
         <SheetHeader>
           <SheetTitle className="pr-8 text-lg leading-snug">{item?.title || "Card"}</SheetTitle>
+          {item?.source === "related" ? (
+            <Badge variant="secondary" className="mt-2 w-fit">
+              Related
+            </Badge>
+          ) : null}
           <SheetDescription>
             {item?.seller ? `Sold by ${item.seller}` : "Product card from this scrape"}
           </SheetDescription>

@@ -22,6 +22,8 @@ def _fixture(client, fixture_set):
             "search_terms": "pokemon cards|fixture",
             "max_pages": 5,
             "delay_sec": 0,
+            "expand_related": False,
+            "recheck_after_block": False,
         },
     )
     assert response.status_code == 201, response.text

@@ -48,6 +48,9 @@ export function History({
         delay_sec: (job.settings.delay_ms ?? 2500) / 1000,
         headless: job.settings.headless,
         fixture_set: job.settings.fixture_set || undefined,
+        expand_related: job.settings.expand_related,
+        related_cards_limit: job.settings.related_cards_limit,
+        recheck_after_block: job.settings.recheck_after_block,
       })
       onStarted(created.id)
     } catch (err) {

@@ -9,7 +9,7 @@ from __future__ import annotations
 import logging
 import re
 
-from app.scraper.fixtures import load_bundle
+from app.scraper.fixtures import load_bundle, load_related_html
 
 logger = logging.getLogger(__name__)
 
@@ -17,6 +17,7 @@ _SHOW_MORE = re.compile(
     r"^\s*(show more results|show more|load more results|load more)\s*$",
     re.IGNORECASE,
 )
+_PRODUCT_URL = re.compile(r"/(?:dp|gp/product)/", re.IGNORECASE)
 
 
 def _page_number(url: str) -> int:
@@ -30,11 +31,17 @@ class FixtureSession:
     def __init__(self, bundle: str):
         self.bundle = bundle
         self.pages = load_bundle(bundle)
+        self.related_html = load_related_html()
+        self.product_visits: list[str] = []
         self.url = f"fixture://{bundle}/1"
         self.last_status: int | None = 200
 
     async def get(self, url: str) -> str:
         self.url = url
+        if _PRODUCT_URL.search(url or ""):
+            self.product_visits.append(url)
+            self.last_status = 200
+            return self.related_html
         number = _page_number(url)
         html = self.pages.get(number)
         if html is None:

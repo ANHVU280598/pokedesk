@@ -1,8 +1,8 @@
 from urllib.parse import unquote
 
 from app.schemas import JobCreate
-from app.scraper.fixtures import load_bundle
-from app.scraper.parser import parse_results
+from app.scraper.fixtures import load_bundle, load_related_html
+from app.scraper.parser import parse_related_cards, parse_results
 from app.scraper.urls import build_search_url, validate_amazon_url
 from app.service import compose_new_job
 
@@ -119,3 +119,18 @@ def test_search_url_and_validation():
         except ValueError:
             continue
         raise AssertionError(f"expected rejection for {bad}")
+
+
+def test_related_cards_are_read_when_present_and_skipped_when_absent():
+    cards = parse_related_cards(load_related_html(), "https://www.amazon.com/dp/B0SEED0001")
+    assert [(card.asin, card.title, card.price) for card in cards] == [
+        ("B0REL10001", "Related Pikachu Tin", 12.0),
+        ("B0REL10002", "Related Booster Sleeve", 9.5),
+    ]
+    skipped = parse_related_cards(
+        load_related_html(),
+        "https://www.amazon.com/dp/B0SEED0001",
+        skip_asin="B0REL10001",
+    )
+    assert [card.asin for card in skipped] == ["B0REL10002"]
+    assert parse_related_cards("<html><body><p>No carousel</p></body></html>", "https://www.amazon.com/dp/B0SEED0001") == []

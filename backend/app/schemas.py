@@ -18,8 +18,11 @@ class JobCreate(BaseModel):
     max_pages: int | None = Field(default=None, ge=1, le=20)
     delay_sec: float | None = Field(default=None, ge=0, le=60)
     headless: bool | None = None
-    fixture_set: Literal["pokemon", "captcha", "pagecap", "showmore"] | None = None
+    fixture_set: Literal["pokemon", "captcha", "pagecap", "showmore", "relatedcap"] | None = None
     proxy_mode: Literal["default", "off", "custom"] = "default"
+    expand_related: bool | None = None
+    related_cards_limit: int | None = Field(default=None, ge=1, le=20)
+    recheck_after_block: bool | None = None
     proxy_url: str | None = None
     proxy_username: str | None = None
     proxy_password: str | None = None
@@ -34,6 +37,9 @@ class SettingsUpdate(BaseModel):
     proxy_username: str = ""
     proxy_password: str = ""
     clear_proxy_password: bool = False
+    expand_related: bool = True
+    related_cards_limit: int = Field(default=3, ge=1, le=20)
+    recheck_after_block: bool = True
 
 
 class FollowUpCreate(BaseModel):

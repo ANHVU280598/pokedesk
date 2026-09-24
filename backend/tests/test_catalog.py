@@ -26,6 +26,8 @@ def _completed(client):
             "search_query": "Pokemon cards",
             "max_pages": 2,
             "delay_sec": 0,
+            "expand_related": False,
+            "recheck_after_block": False,
         },
     )
     assert created.status_code == 201, created.text

@@ -76,6 +76,9 @@ export function createJob(body: {
   proxy_url?: string
   proxy_username?: string
   proxy_password?: string
+  expand_related?: boolean
+  related_cards_limit?: number
+  recheck_after_block?: boolean
 }) {
   return api<Job>("/api/jobs", { method: "POST", body: JSON.stringify(body) })
 }

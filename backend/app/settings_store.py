@@ -19,6 +19,9 @@ DEFAULTS = {
     "proxy_url": "",
     "proxy_username": "",
     "proxy_password": "",
+    "expand_related": True,
+    "related_cards_limit": 3,
+    "recheck_after_block": True,
 }
 
 

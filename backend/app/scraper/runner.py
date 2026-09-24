@@ -7,7 +7,7 @@ import logging
 import time
 
 from app import db
-from app.scraper.parser import card_payload, parse_results
+from app.scraper.parser import card_payload, parse_related_cards, parse_results
 from app.scraper.sessions import FixtureSession, PlaywrightSession
 from app.service import (
     playwright_proxy,
@@ -102,6 +102,24 @@ async def run_job(job_id: int) -> None:
         pending_html: str | None = None
         last_signature: tuple | None = None
         visited_urls: set[str] = set()
+        allow_repeat = False
+
+        async def recover(pages_visited: int, resume_url: str | None, next_page_number: int, message: str) -> bool:
+            nonlocal url, pending_html, allow_repeat
+            nxt = await _stop_or_continue(
+                session,
+                job_id,
+                pages_visited=pages_visited,
+                resume_url=resume_url,
+                next_page_number=next_page_number,
+                message=message,
+            )
+            if not nxt:
+                return False
+            url = nxt
+            pending_html = None
+            allow_repeat = True
+            return True
 
         while True:
             status = await wait_until_not_paused(job_id)
@@ -116,15 +134,16 @@ async def run_job(job_id: int) -> None:
             delay_s = int(settings.get("delay_ms") or 0) / 1000
 
             if pending_html is None:
-                if url in visited_urls:
-                    _block(
-                        job_id,
-                        pages_visited=job["pages_visited"],
-                        resume_url=url,
-                        next_page_number=page_num,
-                        message=REPEAT_MESSAGE,
-                    )
-                    return
+                if url in visited_urls and not allow_repeat:
+                    if not await recover(
+                        int(job["pages_visited"] or 0),
+                        url,
+                        page_num,
+                        REPEAT_MESSAGE,
+                    ):
+                        return
+                    continue
+                allow_repeat = False
                 html = await session.get(url)
                 page_url = session.current_url() or url
                 visited_urls.add(url)
@@ -147,14 +166,14 @@ async def run_job(job_id: int) -> None:
                 reported_pages = page_num
                 if settings.get("recheck_mode"):
                     reported_pages = int(job["pages_visited"] or 0)
-                _block(
-                    job_id,
-                    pages_visited=reported_pages,
-                    resume_url=page_url,
-                    next_page_number=reported_pages or page_num,
-                    message=parsed.block_reason,
-                )
-                return
+                if not await recover(
+                    reported_pages,
+                    page_url,
+                    reported_pages or page_num,
+                    parsed.block_reason,
+                ):
+                    return
+                continue
 
             signature = tuple(
                 card.asin or card.product_url or card.title for card in parsed.cards
@@ -165,15 +184,10 @@ async def run_job(job_id: int) -> None:
                 and parsed.pagination_mode == "show_more"
             ):
                 if parsed.suggests_more and page_num < max_pages:
-                    _block(
-                        job_id,
-                        pages_visited=page_num,
-                        resume_url=page_url,
-                        next_page_number=page_num,
-                        message=PAGE_CAP_MESSAGE,
-                    )
-                else:
-                    _complete(job_id, None)
+                    if not await recover(page_num, page_url, page_num, PAGE_CAP_MESSAGE):
+                        return
+                    continue
+                _complete(job_id, None)
                 return
             last_signature = signature
 
@@ -190,6 +204,8 @@ async def run_job(job_id: int) -> None:
                 next_page_number=page_num + 1,
                 resume_url=parsed.next_url or page_url,
             )
+            if settings.get("pattern_phase") == "recheck":
+                db.merge_settings(job_id, {"pattern_phase": None})
             logger.info(
                 "job %s page %s mode %s cards %s",
                 job_id,
@@ -222,27 +238,18 @@ async def run_job(job_id: int) -> None:
                 more = await session.show_more()
                 if not more:
                     if parsed.suggests_more:
-                        _block(
-                            job_id,
-                            pages_visited=page_num,
-                            resume_url=page_url,
-                            next_page_number=page_num,
-                            message=PAGE_CAP_MESSAGE,
-                        )
-                    else:
-                        _complete(job_id, None)
+                        if not await recover(page_num, page_url, page_num, PAGE_CAP_MESSAGE):
+                            return
+                        continue
+                    _complete(job_id, None)
                     return
                 pending_html = more
                 continue
 
             if parsed.suggests_more and page_num < max_pages:
-                _block(
-                    job_id,
-                    pages_visited=page_num,
-                    resume_url=page_url,
-                    next_page_number=page_num,
-                    message=PAGE_CAP_MESSAGE,
-                )
+                if not await recover(page_num, page_url, page_num, PAGE_CAP_MESSAGE):
+                    return
+                continue
             else:
                 message = None
                 if page_num == 1 and not parsed.cards:
@@ -258,6 +265,143 @@ async def run_job(job_id: int) -> None:
         if session is not None:
             await session.close()
         _settle_parent_recheck(job_id)
+
+
+async def _stop_or_continue(
+    session,
+    job_id: int,
+    *,
+    pages_visited: int,
+    resume_url: str | None,
+    next_page_number: int,
+    message: str,
+) -> str | None:
+    """Run the blocked-recovery pattern once, or finalize the soft block.
+
+    Returns the results URL to open next, or None when the job should stop.
+    """
+    status = db.get_status(job_id)
+    if status not in {"running", "paused"}:
+        return None
+    job = db.get_job(job_id)
+    if job is None:
+        return None
+    settings = job.get("settings") or {}
+    if settings.get("recheck_mode") or settings.get("pattern_handled"):
+        _block(
+            job_id,
+            pages_visited=pages_visited,
+            resume_url=resume_url,
+            next_page_number=next_page_number,
+            message=message,
+        )
+        return None
+    expand = bool(settings.get("expand_related"))
+    recheck = bool(settings.get("recheck_after_block"))
+    if not expand and not recheck:
+        _block(
+            job_id,
+            pages_visited=pages_visited,
+            resume_url=resume_url,
+            next_page_number=next_page_number,
+            message=message,
+        )
+        return None
+    db.merge_settings(
+        job_id,
+        {
+            "pattern_handled": True,
+            "blocked_resume_url": resume_url,
+            "blocked_page": pages_visited,
+            "blocked_message": message,
+        },
+    )
+    if expand and int(settings.get("related_cards_limit") or 0) > 0:
+        phase = await _expand_related(session, job_id)
+        if phase != "running":
+            return None
+    if db.get_status(job_id) == "running":
+        db.recount_items(job_id)
+    job = db.get_job(job_id) or job
+    settings = job.get("settings") or settings
+    if recheck and db.get_status(job_id) == "running":
+        snapshot = {
+            "start_url": job.get("start_url"),
+            "pages_visited": pages_visited,
+            "items_scraped": job.get("items_scraped") or 0,
+            "settings": {**settings, "resume_url": resume_url or job.get("start_url")},
+        }
+        patch = recheck_patch(snapshot, "continue")
+        db.merge_settings(
+            job_id,
+            {**patch, "pattern_phase": "recheck", "pattern_handled": True},
+        )
+        db.set_error_message_if_running(job_id, "Rechecking blocked list…")
+        return str(patch.get("resume_url") or "") or None
+    _block(
+        job_id,
+        pages_visited=pages_visited,
+        resume_url=resume_url,
+        next_page_number=next_page_number,
+        message=message,
+    )
+    return None
+
+
+async def _expand_related(session, job_id: int) -> str:
+    """Open up to N early result cards and store related items found on them."""
+    job = db.get_job(job_id)
+    if job is None:
+        return "failed"
+    settings = job.get("settings") or {}
+    limit = max(0, int(settings.get("related_cards_limit") or 0))
+    seeds = db.list_result_cards(job_id, limit)
+    delay_s = int(settings.get("delay_ms") or 0) / 1000
+    db.merge_settings(
+        job_id,
+        {
+            "pattern_phase": "related",
+            "related_index": 0,
+            "related_total": len(seeds),
+            "related_visited": 0,
+        },
+    )
+    visited = 0
+    for index, seed in enumerate(seeds, start=1):
+        status = await wait_until_not_paused(job_id)
+        if status != "running":
+            db.merge_settings(job_id, {"pattern_phase": None})
+            return status
+        db.merge_settings(job_id, {"related_index": index, "related_total": len(seeds)})
+        db.set_error_message_if_running(
+            job_id,
+            f"Related items: card {index}/{len(seeds)}…",
+        )
+        if await sleep_while_running(job_id, delay_s) != "running":
+            db.merge_settings(job_id, {"pattern_phase": None})
+            return db.get_status(job_id) or "failed"
+        product_url = seed.get("product_url") or ""
+        try:
+            html = await session.get(product_url)
+            page_url = session.current_url() or product_url
+        except Exception:
+            logger.info("job %s skipped related card %s", job_id, product_url)
+            continue
+        if db.get_status(job_id) != "running":
+            db.merge_settings(job_id, {"pattern_phase": None})
+            return db.get_status(job_id) or "failed"
+        for card in parse_related_cards(html, page_url, skip_asin=seed.get("asin")):
+            payload = card_payload(card, page_url, None, 0)
+            payload["source"] = "related"
+            payload["page_number"] = None
+            try:
+                db.upsert_card(job_id, payload)
+            except ValueError:
+                continue
+        visited += 1
+        db.merge_settings(job_id, {"related_visited": visited})
+    db.merge_settings(job_id, {"pattern_phase": None})
+    return db.get_status(job_id) or "failed"
 
 
 def _complete(job_id: int, message: str | None) -> None:

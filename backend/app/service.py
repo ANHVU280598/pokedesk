@@ -8,7 +8,7 @@ from app.scraper.fixtures import BUNDLES
 from app.scraper.urls import DEPARTMENTS, build_search_url, validate_amazon_url, with_page
 from app.schemas import JobCreate, SettingsUpdate
 
-FIXTURE_SETS = {"pokemon", "captcha", "pagecap", "showmore"}
+FIXTURE_SETS = {"pokemon", "captcha", "pagecap", "showmore", "relatedcap"}
 MAX_PAGES = 20
 MIN_LIVE_DELAY = 1.0
 MAX_DELAY = 60.0
@@ -80,6 +80,7 @@ def compose_new_job(body: JobCreate, defaults: dict) -> dict:
         "next_page_number": 1,
         "block_acknowledged": False,
         **resolve_job_proxy(body, defaults),
+        **pattern_settings(body, defaults),
     }
     return {
         "start_url": start_url,
@@ -109,6 +110,34 @@ def clean_settings(body: SettingsUpdate, current: dict) -> dict:
         "proxy_url": url,
         "proxy_username": (body.proxy_username or "").strip(),
         "proxy_password": password,
+        "expand_related": bool(body.expand_related),
+        "related_cards_limit": int(body.related_cards_limit),
+        "recheck_after_block": bool(body.recheck_after_block),
+    }
+
+
+def pattern_settings(body: JobCreate, defaults: dict) -> dict:
+    expand = defaults.get("expand_related", True) if body.expand_related is None else bool(body.expand_related)
+    if body.related_cards_limit is None:
+        limit = int(defaults.get("related_cards_limit") or 3)
+    else:
+        limit = int(body.related_cards_limit)
+    if not 1 <= limit <= 20:
+        raise ValueError("Related cards must be a whole number from 1 to 20")
+    recheck = (
+        defaults.get("recheck_after_block", True)
+        if body.recheck_after_block is None
+        else bool(body.recheck_after_block)
+    )
+    return {
+        "expand_related": expand,
+        "related_cards_limit": limit,
+        "recheck_after_block": recheck,
+        "pattern_phase": None,
+        "pattern_handled": False,
+        "related_index": 0,
+        "related_total": 0,
+        "related_visited": 0,
     }
 
 

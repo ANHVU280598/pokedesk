@@ -92,6 +92,17 @@ A blocked dry-run still suggests live Amazon searches built from that job’s ke
 
 Queuing follow-ups marks the parent for that same recheck, which runs after the follow-ups finish. **Wait & retry** is still the short pause-and-reload for a robot check. Recheck does not click products, scroll, or pretend to browse.
 
+## Blocked recovery pattern
+
+New scrape and Settings can turn on a pattern that runs only after the primary crawl is blocked:
+
+1. **Primary crawl** reads the start URL or search, up to `max_pages`, and keeps the page where the job became blocked.
+2. **Related-item expansion** (optional) goes back to the earliest stored result cards from this job and opens up to N of them (`related_cards_limit`, 1–20). On each product page it stores related, similar, sponsored, or “customers also viewed” cards when that layout is present, tagged `source=related` on the observation. Missing carousels are skipped. The same delay applies, and pause or stop still works between cards. This collects more catalog rows. It does not scroll, move the mouse, or click around to unlock the next results page.
+3. **Recheck** (on by default) then runs the existing recheck on the blocked list: continue to the next page when that URL can be built, otherwise reload the same results list. The job reports whether more pages were scraped or the list is still capped. Stored cards, including related ones, stay either way.
+4. If it is still blocked, the soft-block banner and **Create follow-up jobs** stay available.
+
+Related expansion gathers more products. Recheck probes pagination again. Neither step guarantees Amazon will open more pages.
+
 ## Proxy
 
 Settings can turn on a proxy (`http`, `https`, or `socks5`) with an optional username and password. New scrape can use that default, turn the proxy off for one job, or set a custom URL. Playwright receives the proxy only for live scrapes. Fixture dry-runs never use it.
@@ -121,7 +132,7 @@ source .venv/bin/activate
 pytest
 ```
 
-Parser tests read HTML fixtures in `backend/app/fixtures/`. Database tests cover ASIN upserts, one observation per job and product, null ASINs, and attaching an ASIN onto one matching no-ASIN row. API tests run fixture jobs through the worker, including pause, stop, soft-block, page-cap, follow-ups from a blocked parent, proxy settings, product edit, and merge. Live browser launch is disabled in those tests.
+Parser tests read HTML fixtures in `backend/app/fixtures/`. Database tests cover ASIN upserts, one observation per job and product, null ASINs, and attaching an ASIN onto one matching no-ASIN row. API tests run fixture jobs through the worker, including pause, stop, soft-block, page-cap, follow-ups from a blocked parent, proxy settings, product edit, merge, and the blocked recovery pattern (settings, related expansion then recheck, the card limit, and pause or stop during expansion). Live browser launch is disabled in those tests.
 
 ## Schema
 
@@ -135,6 +146,7 @@ MVP choices baked in:
 - Job status adds `blocked` alongside `queued`, `running`, `paused`, `completed`, and `failed`.
 - Products are unique on ASIN when ASIN is present. Cards without an ASIN stay separate unless they share a product URL, or a later card with an ASIN matches one of them (see above).
 - `scrape_jobs.parent_job_id` points at the blocked job a follow-up was created from. Deleting the parent clears the link.
+- `scrape_observations.source` is `results` or `related`. A related card does not replace that job’s results snapshot for the same product.
 
 ## API
 

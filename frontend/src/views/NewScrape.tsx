@@ -37,6 +37,9 @@ export function NewScrape({ onStarted }: { onStarted: (jobId: number) => void })
   const [proxyUrl, setProxyUrl] = useState("")
   const [proxyUsername, setProxyUsername] = useState("")
   const [proxyPassword, setProxyPassword] = useState("")
+  const [expandRelated, setExpandRelated] = useState(true)
+  const [relatedLimit, setRelatedLimit] = useState("3")
+  const [recheckAfter, setRecheckAfter] = useState(true)
   const [error, setError] = useState<string | null>(null)
   const [pending, setPending] = useState<"live" | "fixture" | null>(null)
 
@@ -48,6 +51,9 @@ export function NewScrape({ onStarted }: { onStarted: (jobId: number) => void })
         setBrowser(settings)
         setMaxPages(String(settings.max_pages))
         setDelaySec(String(settings.delay_sec))
+        setExpandRelated(settings.expand_related)
+        setRelatedLimit(String(settings.related_cards_limit))
+        setRecheckAfter(settings.recheck_after_block)
       })
       .catch(() => {
         if (!cancel) setBrowser(null)
@@ -90,6 +96,11 @@ export function NewScrape({ onStarted }: { onStarted: (jobId: number) => void })
       setError("Prices need to be numbers.")
       return
     }
+    const cards = Number(relatedLimit)
+    if (!Number.isInteger(cards) || cards < 1 || cards > 20) {
+      setError("Related cards must be a whole number from 1 to 20.")
+      return
+    }
     setPending("live")
     try {
       const job = await createJob({
@@ -106,6 +117,9 @@ export function NewScrape({ onStarted }: { onStarted: (jobId: number) => void })
         proxy_url: proxyMode === "custom" ? proxyUrl.trim() : undefined,
         proxy_username: proxyMode === "custom" ? proxyUsername.trim() : undefined,
         proxy_password: proxyMode === "custom" ? proxyPassword : undefined,
+        expand_related: expandRelated,
+        related_cards_limit: cards,
+        recheck_after_block: recheckAfter,
       })
       onStarted(job.id)
     } catch (err) {
@@ -126,6 +140,9 @@ export function NewScrape({ onStarted }: { onStarted: (jobId: number) => void })
         search_terms: "pokemon cards|fixture",
         max_pages: 5,
         delay_sec: 3,
+        expand_related: expandRelated,
+        related_cards_limit: Number(relatedLimit) || 3,
+        recheck_after_block: recheckAfter,
       })
       onStarted(job.id)
     } catch (err) {
@@ -359,6 +376,49 @@ export function NewScrape({ onStarted }: { onStarted: (jobId: number) => void })
               </div>
             ) : null}
           </fieldset>
+          <fieldset className="space-y-3 border-t pt-4">
+            <legend className="text-sm font-medium">Blocked recovery pattern</legend>
+            <div className="rounded-lg border p-3">
+              <label className="flex items-start gap-3">
+                <input
+                  type="checkbox"
+                  checked={expandRelated}
+                  onChange={(event) => setExpandRelated(event.target.checked)}
+                  className="mt-1 accent-[#9a3412]"
+                />
+                <span className="text-sm font-medium">On block: scrape related items from early cards</span>
+              </label>
+              <div className="mt-3 space-y-2 pl-7">
+                <Label htmlFor="related-limit">Cards to open (N)</Label>
+                <Input
+                  id="related-limit"
+                  type="number"
+                  min={1}
+                  max={20}
+                  value={relatedLimit}
+                  onChange={(event) => setRelatedLimit(event.target.value)}
+                  className="h-10 w-24"
+                />
+              </div>
+            </div>
+            <label className="flex items-start gap-3 rounded-lg border p-3">
+              <input
+                type="checkbox"
+                checked={recheckAfter}
+                onChange={(event) => setRecheckAfter(event.target.checked)}
+                className="mt-1 accent-[#9a3412]"
+              />
+              <span>
+                <span className="block text-sm font-medium">Then recheck for more pages</span>
+                <span className="block text-xs text-muted-foreground">
+                  After related expansion, or immediately if that step is off.
+                </span>
+              </span>
+            </label>
+            <p className="text-xs text-muted-foreground">
+              Related expansion gathers more products from early result cards. Recheck probes pagination again. Neither step guarantees Amazon will open more pages.
+            </p>
+          </fieldset>
           <p className="text-xs text-muted-foreground">
             Browser: {browser ? (browser.headless ? "headless" : "headed") : "…"}. Change that in Settings. Live scrapes wait at least 1 second between pages. Dry-runs ignore the proxy.
           </p>
@@ -389,7 +449,7 @@ export function NewScrape({ onStarted }: { onStarted: (jobId: number) => void })
           Opens the results page, reads each product card, then follows Next or Show more until the list ends or your page cap. Pause and stop keep what was already stored.
         </p>
         <p className="mt-3 text-muted-foreground">
-          If Amazon soft-blocks or caps pagination, the job is marked blocked. The tool does not try to evade that check.
+          If Amazon soft-blocks or caps pagination, the job can collect related items from the first cards, then look at the results list again. That gathers more products. It does not try to evade the check.
         </p>
         <p className="mt-3 text-muted-foreground">
           The dry-run uses saved HTML so you can see Live job, Results, and History without calling Amazon.

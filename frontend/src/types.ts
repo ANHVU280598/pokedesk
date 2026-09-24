@@ -18,7 +18,15 @@ export type JobSettings = {
   min_price?: number | null
   max_price?: number | null
   department?: string | null
-  fixture_set?: "pokemon" | "captcha" | "pagecap" | "showmore" | null
+  fixture_set?: "pokemon" | "captcha" | "pagecap" | "showmore" | "relatedcap" | null
+  expand_related?: boolean
+  related_cards_limit?: number
+  recheck_after_block?: boolean
+  pattern_phase?: "related" | "recheck" | null
+  pattern_handled?: boolean
+  related_index?: number
+  related_total?: number
+  related_visited?: number
   resume_url?: string | null
   next_page_number?: number
   block_acknowledged?: boolean
@@ -74,6 +82,7 @@ export type Observation = {
   availability_snippet: string | null
   page_number: number | null
   observed_at: string
+  source?: "results" | "related"
 }
 
 export type ObservationPage = {
@@ -118,6 +127,9 @@ export type OperatorSettings = {
   proxy_username: string
   proxy_password: string
   proxy_password_set: boolean
+  expand_related: boolean
+  related_cards_limit: number
+  recheck_after_block: boolean
 }
 
 export type SettingsWrite = {
@@ -129,6 +141,9 @@ export type SettingsWrite = {
   proxy_username: string
   proxy_password: string
   clear_proxy_password?: boolean
+  expand_related: boolean
+  related_cards_limit: number
+  recheck_after_block: boolean
 }
 
 export type ProxyMode = "default" | "off" | "custom"

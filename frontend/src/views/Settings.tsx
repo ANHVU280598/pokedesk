@@ -14,6 +14,9 @@ export function Settings() {
   const [proxyPassword, setProxyPassword] = useState("")
   const [passwordSet, setPasswordSet] = useState(false)
   const [clearPassword, setClearPassword] = useState(false)
+  const [expandRelated, setExpandRelated] = useState(true)
+  const [relatedLimit, setRelatedLimit] = useState("3")
+  const [recheckAfter, setRecheckAfter] = useState(true)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
   const [saved, setSaved] = useState(false)
@@ -33,6 +36,9 @@ export function Settings() {
         setPasswordSet(settings.proxy_password_set)
         setProxyPassword("")
         setClearPassword(false)
+        setExpandRelated(settings.expand_related)
+        setRelatedLimit(String(settings.related_cards_limit))
+        setRecheckAfter(settings.recheck_after_block)
       })
       .catch((err: unknown) => {
         if (!cancel) setError(err instanceof ApiError ? err.message : "Could not load settings.")
@@ -58,6 +64,11 @@ export function Settings() {
       setError("Default max pages must be a whole number from 1 to 20.")
       return
     }
+    const cards = Number(relatedLimit)
+    if (!Number.isInteger(cards) || cards < 1 || cards > 20) {
+      setError("Related cards must be a whole number from 1 to 20.")
+      return
+    }
     setPending(true)
     setError(null)
     try {
@@ -70,6 +81,9 @@ export function Settings() {
         proxy_username: proxyUsername.trim(),
         proxy_password: proxyPassword,
         clear_proxy_password: clearPassword,
+        expand_related: expandRelated,
+        related_cards_limit: cards,
+        recheck_after_block: recheckAfter,
       })
       setDelaySec(String(next.delay_sec))
       setMaxPages(String(next.max_pages))
@@ -80,6 +94,9 @@ export function Settings() {
       setPasswordSet(next.proxy_password_set)
       setProxyPassword("")
       setClearPassword(false)
+      setExpandRelated(next.expand_related)
+      setRelatedLimit(String(next.related_cards_limit))
+      setRecheckAfter(next.recheck_after_block)
       setSaved(true)
     } catch (err) {
       setError(err instanceof ApiError ? err.message : "Could not save settings.")
@@ -156,6 +173,42 @@ export function Settings() {
                   Opens a visible window. Needs a local display.
                 </span>
               </span>
+            </label>
+          </fieldset>
+          <fieldset className="space-y-3 border-t pt-4">
+            <legend className="text-sm font-medium">Blocked recovery pattern</legend>
+            <p className="text-xs text-muted-foreground">
+              Related expansion gathers more products from early result cards. Recheck probes pagination again. Neither step guarantees Amazon will open more pages.
+            </p>
+            <label className="flex items-center gap-2 text-sm">
+              <input
+                type="checkbox"
+                checked={expandRelated}
+                onChange={(event) => setExpandRelated(event.target.checked)}
+                className="accent-[#9a3412]"
+              />
+              On block: scrape related items
+            </label>
+            <div className="space-y-2">
+              <Label htmlFor="default-related">Default cards to open (N)</Label>
+              <Input
+                id="default-related"
+                type="number"
+                min={1}
+                max={20}
+                value={relatedLimit}
+                onChange={(event) => setRelatedLimit(event.target.value)}
+                className="h-10 w-24"
+              />
+            </div>
+            <label className="flex items-center gap-2 text-sm">
+              <input
+                type="checkbox"
+                checked={recheckAfter}
+                onChange={(event) => setRecheckAfter(event.target.checked)}
+                className="accent-[#9a3412]"
+              />
+              Then recheck for more pages
             </label>
           </fieldset>
           <fieldset className="space-y-3 border-t pt-4">

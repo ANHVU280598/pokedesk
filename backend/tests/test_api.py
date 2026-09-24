@@ -22,6 +22,8 @@ def _fixture(client, fixture_set="pokemon", delay_sec=0, max_pages=5):
             "search_terms": "pokemon cards|fixture",
             "max_pages": max_pages,
             "delay_sec": delay_sec,
+            "expand_related": False,
+            "recheck_after_block": False,
         },
     )
     assert response.status_code == 201, response.text
@@ -170,6 +172,9 @@ def test_settings_roundtrip(client):
         "proxy_username": "",
         "proxy_password": "",
         "proxy_password_set": False,
+        "expand_related": True,
+        "related_cards_limit": 3,
+        "recheck_after_block": True,
     }
     too_fast = client.post(
         "/api/jobs",

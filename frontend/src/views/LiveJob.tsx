@@ -8,6 +8,21 @@ import type { Job, Observation } from "../types"
 
 const ACTIVE = new Set(["queued", "running", "paused"])
 
+function patternStatus(job: Job): string | null {
+  const phase = job.settings.pattern_phase
+  const message = job.error_message || ""
+  if (phase === "related" || message.startsWith("Related items:")) {
+    if (message.startsWith("Related items:")) return message
+    const index = job.settings.related_index ?? 0
+    const total = job.settings.related_total ?? 0
+    return `Related items: card ${index}/${total}… Pause and stop still apply.`
+  }
+  if (phase === "recheck" || message.startsWith("Rechecking blocked list")) {
+    return "Rechecking blocked list…"
+  }
+  return null
+}
+
 export function LiveJob({
   jobId,
   onOpenResults,
@@ -163,8 +178,14 @@ export function LiveJob({
             <FollowUpButton jobId={job.id} onQueued={onAdopt} />
             <RecheckButton jobId={job.id} onQueued={onAdopt} />
           </div>
+          {job.settings.related_visited ? (
+            <p className="mt-2 text-sm">
+              Related items were collected from {job.settings.related_visited} product card
+              {job.settings.related_visited === 1 ? "" : "s"} and kept with this job.
+            </p>
+          ) : null}
           <p className="mt-2 text-xs text-amber-900/80">
-            Recheck reloads this results list, or opens the next page when that URL can be built. It does not click around the site.
+            Related expansion gathers more products. Recheck probes pagination again and is not a guarantee Amazon will open more pages.
           </p>
         </div>
       ) : null}
@@ -200,9 +221,10 @@ export function LiveJob({
           <div className="h-full bg-primary transition-all" style={{ width: `${pct}%` }} />
         </div>
         <p className="mt-3 text-xs text-muted-foreground">
-          {job.pages_visited === 0 && active
-            ? "Opening the first page…"
-            : "Pause and stop take effect between pages."}
+          {patternStatus(job) ??
+            (job.pages_visited === 0 && active
+              ? "Opening the first page…"
+              : "Pause and stop take effect between pages.")}
         </p>
         {error ? <p className="mt-3 text-sm text-rose-800">{error}</p> : null}
         <div className="mt-4 flex flex-wrap gap-2">

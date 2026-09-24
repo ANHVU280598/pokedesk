@@ -169,6 +169,50 @@ def extract_cards(soup: BeautifulSoup, page_url: str) -> list[Card]:
     return cards
 
 
+_RELATED_ROOTS = (
+    "#similarities_feature_div",
+    "#sims-feature",
+    "#sp_detail",
+    "#purchase-sims-feature",
+    "#anonCarousel1",
+    "[data-feature-name='similarities']",
+    "[data-feature-name='sims']",
+    ".a-carousel-container",
+    ".p13n-sc-uncoverable-faceout",
+)
+
+
+def parse_related_cards(html: str, page_url: str, *, skip_asin: str | None = None) -> list[Card]:
+    """Best-effort related, similar, sponsored, or also-viewed cards.
+
+    Returns an empty list when the layout has none. Does not fill in missing prices.
+    """
+    soup = BeautifulSoup(html, "html.parser")
+    if detect_block(soup, html):
+        return []
+    nodes = []
+    for selector in _RELATED_ROOTS:
+        nodes.extend(soup.select(selector))
+    cards: list[Card] = []
+    seen: set[str] = set()
+    skip = clean_asin(skip_asin) if skip_asin else None
+    for root in nodes:
+        candidates = root.select("[data-asin]")
+        if not candidates and root.get("data-asin"):
+            candidates = [root]
+        for node in candidates:
+            card = parse_card(node, page_url)
+            if card is None or card.asin is None:
+                continue
+            if skip and card.asin == skip:
+                continue
+            if card.asin in seen:
+                continue
+            seen.add(card.asin)
+            cards.append(card)
+    return cards
+
+
 def parse_card(node, page_url: str) -> Card | None:
     asin = clean_asin(node.get("data-asin"))
     product_url = extract_url(node, page_url)

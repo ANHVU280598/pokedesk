@@ -11,7 +11,12 @@ BUNDLES: dict[str, dict[int, str]] = {
     "captcha": {1: "captcha.html"},
     "pagecap": {1: "page_cap.html", 2: "page_cap_page_2.html"},
     "showmore": {1: "showmore_page_1.html", 2: "showmore_page_2.html"},
+    "relatedcap": {1: "relatedcap_page_1.html"},
 }
+
+
+def load_related_html() -> str:
+    return (FIXTURE_DIR / "related_items.html").read_text(encoding="utf-8")
 
 
 def load_bundle(name: str) -> dict[int, str]:

@@ -54,6 +54,7 @@ CREATE TABLE IF NOT EXISTS scrape_observations (
   raw_json TEXT NOT NULL,
   observed_at TEXT NOT NULL,
   page_number INTEGER,
+  source TEXT NOT NULL DEFAULT 'results',
   UNIQUE (job_id, product_id)
 );
 
