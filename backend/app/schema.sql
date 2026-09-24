@@ -48,6 +48,8 @@ CREATE TABLE IF NOT EXISTS scrape_observations (
   list_price REAL,
   rating REAL,
   review_count INTEGER,
+  bought_past_month INTEGER,
+  bought_past_month_text TEXT,
   badges_json TEXT,
   availability_snippet TEXT,
   seller TEXT,

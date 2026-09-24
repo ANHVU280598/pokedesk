@@ -35,6 +35,12 @@ export function formatCount(value: number | null) {
   return value.toLocaleString("en-US")
 }
 
+export function formatBought(count: number | null, text: string | null) {
+  if (text) return text
+  if (count == null) return "—"
+  return count.toLocaleString("en-US")
+}
+
 export function jobMode(job: Job): JobMode {
   if (
     job.settings.mode === "url" ||

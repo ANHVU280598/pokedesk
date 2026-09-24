@@ -11,7 +11,7 @@ import {
   SheetTitle,
 } from "@/components/ui/sheet"
 import { ApiError, getProduct, listJobs, listObservations } from "../api"
-import { formatCount, formatMoney, formatRating, formatWhen, sourceLabel } from "../format"
+import { formatBought, formatCount, formatMoney, formatRating, formatWhen, sourceLabel } from "../format"
 import type { Job, Observation, Product } from "../types"
 
 export function Results({
@@ -176,6 +176,7 @@ export function Results({
             <option value="price_asc">Price low</option>
             <option value="price_desc">Price high</option>
             <option value="rating">Rating</option>
+            <option value="bought">Bought last month</option>
           </select>
         </div>
       </div>
@@ -207,6 +208,7 @@ export function Results({
                 <th className="px-3 py-2 font-medium">List</th>
                 <th className="px-3 py-2 font-medium">Rating</th>
                 <th className="px-3 py-2 font-medium">Reviews</th>
+                <th className="px-3 py-2 font-medium">Bought last month</th>
                 <th className="px-3 py-2 font-medium">Page</th>
               </tr>
             </thead>
@@ -242,6 +244,7 @@ export function Results({
                   <td className="px-3 py-2 text-muted-foreground">{formatMoney(item.list_price, item.currency)}</td>
                   <td className="px-3 py-2">{formatRating(item.rating)}</td>
                   <td className="px-3 py-2">{formatCount(item.review_count)}</td>
+                  <td className="px-3 py-2">{formatBought(item.bought_past_month, item.bought_past_month_text)}</td>
                   <td className="px-3 py-2">{item.page_number ?? "—"}</td>
                 </tr>
               ))}
@@ -264,6 +267,9 @@ export function Results({
                 <p className="text-sm">{formatMoney(item.price, item.currency)}</p>
                 <p className="text-xs text-muted-foreground">
                   {formatRating(item.rating)} · {formatCount(item.review_count)} reviews
+                </p>
+                <p className="text-xs text-muted-foreground">
+                  Bought last month {formatBought(item.bought_past_month, item.bought_past_month_text)}
                 </p>
               </div>
             </button>
@@ -378,6 +384,10 @@ function DetailDrawer({
                   <dd>
                     {formatRating(item.rating)} · {formatCount(item.review_count)} reviews
                   </dd>
+                </div>
+                <div>
+                  <dt className="text-xs text-muted-foreground">Bought last month</dt>
+                  <dd>{formatBought(item.bought_past_month, item.bought_past_month_text)}</dd>
                 </div>
                 <div>
                   <dt className="text-xs text-muted-foreground">Page</dt>

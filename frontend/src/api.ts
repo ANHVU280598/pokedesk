@@ -104,6 +104,7 @@ export function listObservations(
   params: {
     q?: string
     min_rating?: number
+    min_bought?: number
     min_price?: number
     max_price?: number
     sort?: string

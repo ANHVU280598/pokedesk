@@ -48,6 +48,8 @@ class Card:
     review_count: int | None
     image_url: str | None
     product_url: str | None
+    bought_past_month: int | None = None
+    bought_past_month_text: str | None = None
     badges: list[str] = field(default_factory=list)
     seller: str | None = None
     availability_snippet: str | None = None
@@ -88,6 +90,8 @@ def card_payload(card: Card, page_url: str, breadcrumbs: str | None, page_number
         "list_price": card.list_price,
         "rating": card.rating,
         "review_count": card.review_count,
+        "bought_past_month": card.bought_past_month,
+        "bought_past_month_text": card.bought_past_month_text,
         "badges": list(card.badges),
         "availability_snippet": card.availability_snippet,
         "seller": card.seller,
@@ -225,6 +229,7 @@ def parse_card(node, page_url: str) -> Card | None:
         return None
     price, currency, list_price = extract_price(node)
     rating, reviews = extract_rating_and_reviews(node)
+    bought_count, bought_text = extract_bought_past_month(node)
     return Card(
         asin=asin,
         title=title[:500],
@@ -233,6 +238,8 @@ def parse_card(node, page_url: str) -> Card | None:
         list_price=list_price,
         rating=rating,
         review_count=reviews,
+        bought_past_month=bought_count,
+        bought_past_month_text=bought_text,
         image_url=extract_image(node),
         product_url=product_url,
         badges=extract_badges(node),
@@ -358,6 +365,46 @@ def parse_reviews(text: str) -> int | None:
     elif suffix == "m":
         number *= 1_000_000
     return int(round(number))
+
+
+BOUGHT_RE = re.compile(
+    r"(?P<num>\d{1,3}(?:,\d{3})+|\d+(?:\.\d+)?)\s*(?P<suffix>[KkMm])?\s*(?P<plus>\+)?"
+    r"\s+bought in (?:the )?past month",
+    re.IGNORECASE,
+)
+
+
+def extract_bought_past_month(node) -> tuple[int | None, str | None]:
+    """Read Amazon's bought-in-past-month social proof. Missing text stays empty."""
+    texts: list[str] = []
+    for el in node.select("[aria-label]"):
+        label = " ".join((el.get("aria-label") or "").split())
+        if label and len(label) <= 80:
+            texts.append(label)
+    for el in node.find_all(["span", "div"]):
+        if el.find_parent(["script", "style"]) is not None:
+            continue
+        text = " ".join(el.get_text(" ", strip=True).split())
+        if text and len(text) <= 80 and "bought in" in text.lower():
+            texts.append(text)
+    texts.append(" ".join(node.get_text(" ", strip=True).split()))
+    for text in texts:
+        match = BOUGHT_RE.search(text.replace("\xa0", " "))
+        if match is None:
+            continue
+        number = float(match.group("num").replace(",", ""))
+        suffix = (match.group("suffix") or "").lower()
+        if suffix == "k":
+            number *= 1000
+        elif suffix == "m":
+            number *= 1_000_000
+        token = match.group("num")
+        if match.group("suffix"):
+            token += match.group("suffix")
+        if match.group("plus"):
+            token += "+"
+        return int(round(number)), token
+    return None, None
 
 
 def extract_badges(node) -> list[str]:

@@ -149,6 +149,7 @@ MVP choices baked in:
 - Products are unique on ASIN when ASIN is present. Cards without an ASIN stay separate unless they share a product URL, or a later card with an ASIN matches one of them (see above).
 - `scrape_jobs.parent_job_id` points at the blocked job a follow-up was created from. Deleting the parent clears the link.
 - `scrape_observations.source` is `results` or `related`. A related card does not replace that job’s results snapshot for the same product.
+- `bought_past_month` and `bought_past_month_text` sit on each observation, like price. They stay empty when the card does not show a “bought in past month” count. Results can sort by that number.
 
 ## API
 
@@ -165,7 +166,7 @@ MVP choices baked in:
 | GET | `/api/jobs/{id}/follow-ups` | Suggested price and sort slices for a blocked job |
 | POST | `/api/jobs/{id}/follow-ups` | Queue selected follow-ups (`suggestion_ids`) |
 | DELETE | `/api/jobs/{id}` | Delete a finished job, its observations, and its snapshots |
-| GET | `/api/jobs/{id}/observations` | Cards for a job (`q`, `min_price`, `max_price`, `min_rating`, `sort`) |
+| GET | `/api/jobs/{id}/observations` | Cards for a job (`q`, `min_price`, `max_price`, `min_rating`, `min_bought`, `sort` including `bought`) |
 | GET | `/api/products` | Search the catalog (`q`, `has_asin`, `last_seen_after`, `last_seen_before`, `limit`, `offset`) |
 | GET | `/api/products/duplicates` | Same-title and no-ASIN hints |
 | POST | `/api/products/merge` | Merge `drop_id` into `keep_id` and reassign observations |

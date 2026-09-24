@@ -45,6 +45,10 @@ def test_fixture_job_upserts_across_pages_and_lists_results(client):
     assert by_asin["B0PKMN0003"]["title"] == "Charizard ex Tin (restock)"
     assert by_asin["B0PKMN0003"]["page_number"] == 2
     assert by_asin["B0PKMN0001"]["seller"] == "The Pokemon Company"
+    assert by_asin["B0PKMN0001"]["bought_past_month"] == 1000
+    assert by_asin["B0PKMN0001"]["bought_past_month_text"] == "1K+"
+    assert by_asin["B0PKMN0002"]["bought_past_month"] is None
+    assert by_asin["B0PKMN0002"]["bought_past_month_text"] is None
     assert by_asin["B0PKMN0001"]["category_breadcrumbs"] == "Toys & Games > Collectible Card Games"
 
     filtered = client.get(

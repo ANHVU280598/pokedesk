@@ -3,7 +3,7 @@ import { Button } from "@/components/ui/button"
 import { ApiError, getJob, listJobs, listObservations, pauseJob, resumeJob, retryJob, stopJob } from "../api"
 import { FollowUpButton, RecheckButton } from "../components/FollowUps"
 import { StatusChip } from "../components/StatusChip"
-import { formatMoney, paginationLabel } from "../format"
+import { formatBought, formatMoney, paginationLabel } from "../format"
 import type { Job, Observation } from "../types"
 
 const ACTIVE = new Set(["queued", "running", "paused"])
@@ -267,6 +267,9 @@ export function LiveJob({
                 <div className="min-w-0">
                   <p className="truncate text-sm font-medium">{item.title}</p>
                   <p className="font-mono text-xs text-muted-foreground">{item.asin || "No ASIN"}</p>
+                  <p className="text-xs text-muted-foreground">
+                    Bought last month {formatBought(item.bought_past_month, item.bought_past_month_text)}
+                  </p>
                 </div>
                 <p className="shrink-0 text-sm">{formatMoney(item.price, item.currency)}</p>
               </li>

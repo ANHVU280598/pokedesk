@@ -77,6 +77,8 @@ export type Observation = {
   list_price: number | null
   rating: number | null
   review_count: number | null
+  bought_past_month: number | null
+  bought_past_month_text: string | null
   badges: string[]
   seller: string | null
   availability_snippet: string | null
@@ -99,6 +101,8 @@ export type ProductObservation = {
   list_price: number | null
   rating: number | null
   review_count: number | null
+  bought_past_month: number | null
+  bought_past_month_text: string | null
   badges: string[]
   seller: string | null
   availability_snippet: string | null
@@ -169,6 +173,8 @@ export type CatalogProduct = {
   first_seen_at: string
   last_seen_at: string
   observation_count: number
+  bought_past_month: number | null
+  bought_past_month_text: string | null
 }
 
 export type DuplicateHint = {

@@ -100,6 +100,9 @@ def test_blocked_job_expands_related_cards_then_rechecks(client):
     assert by_asin["B0REL10001"]["source"] == "related"
     assert by_asin["B0REL10001"]["title"] == "Related Pikachu Tin"
     assert by_asin["B0REL10001"]["price"] == 12
+    assert by_asin["B0REL10001"]["bought_past_month"] == 50
+    assert by_asin["B0REL10001"]["bought_past_month_text"] == "50+"
+    assert by_asin["B0REL10002"]["bought_past_month"] is None
     assert by_asin["B0REL10002"]["price"] == 9.5
     assert done["items_scraped"] == 5
 

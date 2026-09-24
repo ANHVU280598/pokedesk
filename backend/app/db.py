@@ -60,6 +60,14 @@ def _migrate(conn: sqlite3.Connection) -> None:
         conn.execute(
             "ALTER TABLE scrape_observations ADD COLUMN source TEXT NOT NULL DEFAULT 'results'"
         )
+    if "bought_past_month" not in obs_columns:
+        conn.execute(
+            "ALTER TABLE scrape_observations ADD COLUMN bought_past_month INTEGER"
+        )
+    if "bought_past_month_text" not in obs_columns:
+        conn.execute(
+            "ALTER TABLE scrape_observations ADD COLUMN bought_past_month_text TEXT"
+        )
     conn.execute(
         "CREATE INDEX IF NOT EXISTS ix_jobs_parent ON scrape_jobs(parent_job_id)"
     )
@@ -699,15 +707,18 @@ def _upsert_observation(
         """
         INSERT INTO scrape_observations (
           job_id, product_id, price, currency, list_price, rating, review_count,
+          bought_past_month, bought_past_month_text,
           badges_json, availability_snippet, seller, raw_json, observed_at, page_number,
           source
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         ON CONFLICT(job_id, product_id) DO UPDATE SET
           price = excluded.price,
           currency = excluded.currency,
           list_price = excluded.list_price,
           rating = excluded.rating,
           review_count = excluded.review_count,
+          bought_past_month = excluded.bought_past_month,
+          bought_past_month_text = excluded.bought_past_month_text,
           badges_json = excluded.badges_json,
           availability_snippet = excluded.availability_snippet,
           seller = excluded.seller,
@@ -724,6 +735,8 @@ def _upsert_observation(
             card.get("list_price"),
             card.get("rating"),
             card.get("review_count"),
+            card.get("bought_past_month"),
+            card.get("bought_past_month_text"),
             json.dumps(badges) if badges else None,
             card.get("availability_snippet"),
             card.get("seller"),
@@ -742,6 +755,7 @@ def list_observations(
     min_price: float | None = None,
     max_price: float | None = None,
     min_rating: float | None = None,
+    min_bought: int | None = None,
     sort: str = "page",
     limit: int = 500,
     offset: int = 0,
@@ -752,6 +766,7 @@ def list_observations(
         "price_asc": "o.price IS NULL, o.price ASC, o.id ASC",
         "price_desc": "o.price IS NULL, o.price DESC, o.id ASC",
         "rating": "o.rating IS NULL, o.rating DESC, o.id ASC",
+        "bought": "o.bought_past_month IS NULL, o.bought_past_month DESC, o.id ASC",
     }[sort]
     where = ["o.job_id = ?"]
     args: list = [job_id]
@@ -770,6 +785,9 @@ def list_observations(
     if min_rating is not None:
         where.append("o.rating >= ?")
         args.append(min_rating)
+    if min_bought is not None:
+        where.append("o.bought_past_month >= ?")
+        args.append(min_bought)
     clause = " AND ".join(where)
     with _tx() as conn:
         total = conn.execute(
@@ -784,7 +802,8 @@ def list_observations(
         rows = conn.execute(
             f"""
             SELECT o.id AS observation_id, o.job_id, o.product_id, o.price, o.currency,
-                   o.list_price, o.rating, o.review_count, o.badges_json,
+                   o.list_price, o.rating, o.review_count, o.bought_past_month,
+                   o.bought_past_month_text, o.badges_json,
                    o.availability_snippet, o.seller, o.observed_at, o.page_number,
                    o.source,
                    p.asin, p.title, p.image_url, p.product_url, p.category_breadcrumbs
@@ -812,7 +831,8 @@ def get_product(product_id: int) -> dict | None:
         observations = conn.execute(
             """
             SELECT id AS observation_id, job_id, price, currency, list_price, rating,
-                   review_count, badges_json, availability_snippet, seller,
+                   review_count, bought_past_month, bought_past_month_text,
+                   badges_json, availability_snippet, seller,
                    observed_at, page_number
             FROM scrape_observations
             WHERE product_id = ?
@@ -911,6 +931,8 @@ def _product_brief(row: sqlite3.Row, observation_count: int) -> dict:
         "first_seen_at": row["first_seen_at"],
         "last_seen_at": row["last_seen_at"],
         "observation_count": observation_count,
+        "bought_past_month": row["bought_past_month"],
+        "bought_past_month_text": row["bought_past_month_text"],
     }
 
 
@@ -952,7 +974,21 @@ def list_products(
             f"""
             SELECT p.*,
                    (SELECT COUNT(*) FROM scrape_observations o WHERE o.product_id = p.id)
-                     AS observation_count
+                     AS observation_count,
+                   (
+                     SELECT o.bought_past_month
+                     FROM scrape_observations o
+                     WHERE o.product_id = p.id
+                     ORDER BY o.observed_at DESC, o.id DESC
+                     LIMIT 1
+                   ) AS bought_past_month,
+                   (
+                     SELECT o.bought_past_month_text
+                     FROM scrape_observations o
+                     WHERE o.product_id = p.id
+                     ORDER BY o.observed_at DESC, o.id DESC
+                     LIMIT 1
+                   ) AS bought_past_month_text
             FROM products p
             WHERE {clause}
             ORDER BY last_seen_at DESC, id DESC

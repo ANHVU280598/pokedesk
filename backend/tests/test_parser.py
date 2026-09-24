@@ -2,7 +2,8 @@ from urllib.parse import unquote
 
 from app.schemas import JobCreate
 from app.scraper.fixtures import load_bundle, load_related_html
-from app.scraper.parser import parse_related_cards, parse_results
+from app.scraper.parser import extract_bought_past_month, parse_related_cards, parse_results
+from bs4 import BeautifulSoup
 from app.scraper.urls import build_search_url, validate_amazon_url
 from app.service import compose_new_job
 
@@ -19,6 +20,10 @@ def test_pokemon_fixture_page_extracts_cards_and_next_link():
     assert first.list_price == 169.99
     assert first.rating == 4.8
     assert first.review_count == 12403
+    assert first.bought_past_month == 1000
+    assert first.bought_past_month_text == "1K+"
+    assert parsed.cards[1].bought_past_month is None
+    assert parsed.cards[1].bought_past_month_text is None
     assert first.badges == ["Best Seller"]
     assert first.seller == "The Pokemon Company"
     assert first.availability_snippet.startswith("Only 4 left")
@@ -134,3 +139,17 @@ def test_related_cards_are_read_when_present_and_skipped_when_absent():
     )
     assert [card.asin for card in skipped] == ["B0REL10002"]
     assert parse_related_cards("<html><body><p>No carousel</p></body></html>", "https://www.amazon.com/dp/B0SEED0001") == []
+    assert cards[0].bought_past_month == 50
+    assert cards[0].bought_past_month_text == "50+"
+    assert cards[1].bought_past_month is None
+
+
+def test_bought_past_month_is_parsed_only_when_amazon_shows_it():
+    def read(html: str):
+        return extract_bought_past_month(BeautifulSoup(html, "html.parser"))
+
+    assert read("<div><span>1K+ bought in past month</span></div>") == (1000, "1K+")
+    assert read("<div><span>500+ bought in past month</span></div>") == (500, "500+")
+    assert read("<div><span>1.5K+ bought in past month</span></div>") == (1500, "1.5K+")
+    assert read("<div><span>10K+ bought in past week</span></div>") == (None, None)
+    assert read("<div><span>$12.00</span></div>") == (None, None)

@@ -21,7 +21,7 @@ import {
   mergeProducts,
   updateProduct,
 } from "../api"
-import { formatMoney, formatWhen, sourceLabel } from "../format"
+import { formatBought, formatMoney, formatWhen, sourceLabel } from "../format"
 import type { CatalogProduct, DuplicateHint, Job, Product } from "../types"
 
 const PAGE = 25
@@ -199,6 +199,7 @@ function Products() {
                 <th className="px-3 py-2 font-medium">Title</th>
                 <th className="px-3 py-2 font-medium">ASIN</th>
                 <th className="px-3 py-2 font-medium">Last seen</th>
+                <th className="px-3 py-2 font-medium">Bought last month</th>
                 <th className="px-3 py-2 font-medium">Snapshots</th>
               </tr>
             </thead>
@@ -212,6 +213,9 @@ function Products() {
                   <td className="max-w-[360px] truncate px-3 py-2">{item.title}</td>
                   <td className="px-3 py-2 font-mono text-xs">{item.asin || "—"}</td>
                   <td className="px-3 py-2 whitespace-nowrap">{formatWhen(item.last_seen_at)}</td>
+                  <td className="px-3 py-2">
+                    {formatBought(item.bought_past_month, item.bought_past_month_text)}
+                  </td>
                   <td className="px-3 py-2">{item.observation_count}</td>
                 </tr>
               ))}
@@ -402,6 +406,9 @@ function ProductEditor({
                   <div className="flex items-start justify-between gap-3">
                     <div>
                       <div className="font-medium">{formatMoney(item.price, item.currency)}</div>
+                      <div className="text-xs text-muted-foreground">
+                        Bought last month {formatBought(item.bought_past_month, item.bought_past_month_text)}
+                      </div>
                       <div className="text-xs text-muted-foreground">
                         Job {item.job_id} · {formatWhen(item.observed_at)}
                       </div>

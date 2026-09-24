@@ -10,7 +10,7 @@ from app.service import clean_settings, compose_new_job, recheck_patch, retry_wa
 
 router = APIRouter(prefix="/api")
 
-SORTS = {"page", "recent", "price_asc", "price_desc", "rating"}
+SORTS = {"page", "recent", "price_asc", "price_desc", "rating", "bought"}
 
 
 @router.get("/health")
@@ -117,6 +117,7 @@ async def list_observations(
     min_price: float | None = None,
     max_price: float | None = None,
     min_rating: float | None = None,
+    min_bought: int | None = None,
     sort: str = "page",
     limit: int = 500,
 ) -> dict:
@@ -131,6 +132,7 @@ async def list_observations(
         min_price=min_price,
         max_price=max_price,
         min_rating=min_rating,
+        min_bought=min_bought,
         sort=sort,
         limit=bounded,
     )
