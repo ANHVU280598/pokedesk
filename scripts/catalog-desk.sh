@@ -66,6 +66,7 @@ stop_port() {
 wait_http() {
   local url="$1"
   local label="$2"
+  local log_file="${3:-}"
   local i
   for i in 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15 16 17 18 19 20 \
            21 22 23 24 25 26 27 28 29 30 31 32 33 34 35 36 37 38 39 40 \
@@ -77,7 +78,12 @@ wait_http() {
     sleep 0.5
   done
   echo "$label did not become ready: $url" >&2
-  echo "See $API_LOG and $UI_LOG" >&2
+  if [[ -n "$log_file" && -f "$log_file" ]]; then
+    echo "Last lines of $log_file:" >&2
+    tail -n 40 "$log_file" >&2 || true
+  else
+    echo "See $API_LOG and $UI_LOG" >&2
+  fi
   return 1
 }
 
@@ -101,11 +107,20 @@ cmd_start() {
   if port_open "$API_PORT"; then
     echo "API already listening on http://127.0.0.1:$API_PORT"
   else
+    if [[ ! -x "$ROOT/.venv/bin/pip" ]]; then
+      echo "Missing .venv pip. Recreate the venv, then: .venv/bin/pip install -r backend/requirements.txt" >&2
+      exit 1
+    fi
+    echo "Refreshing Python dependencies from backend/requirements.txt"
+    if ! "$ROOT/.venv/bin/pip" install -q -r "$ROOT/backend/requirements.txt"; then
+      echo "Could not install backend requirements. From the repo root: .venv/bin/pip install -r backend/requirements.txt" >&2
+      exit 1
+    fi
     echo "Starting API on http://127.0.0.1:$API_PORT"
     nohup "$ROOT/.venv/bin/uvicorn" app.main:app --app-dir backend --host 127.0.0.1 --port "$API_PORT" \
       >"$API_LOG" 2>&1 &
     echo $! >"$API_PID"
-    wait_http "http://127.0.0.1:$API_PORT/api/health" "API"
+    wait_http "http://127.0.0.1:$API_PORT/api/health" "API" "$API_LOG"
   fi
 
   if port_open "$UI_PORT"; then

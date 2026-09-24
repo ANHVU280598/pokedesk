@@ -46,7 +46,7 @@ make stop
 make push       # git push -u github <current-branch>
 ```
 
-`make pull` does not restart a running app. After a pull, run `make restart` so the new code is what is serving. Start is safe to repeat: if those ports are already open, it leaves them alone and prints the URLs. Logs go in `.catalog-desk/` (gitignored).
+`make pull` does not restart a running app. After a pull, run `make restart` so the new code is what is serving. `make start` and `make restart` refresh the existing `.venv` from `backend/requirements.txt` before they launch the API, so a pull that adds a Python package does not need a separate `pip install`. Frontend packages are not installed for you: if `frontend/node_modules` is missing, start stops and tells you to run `npm install` in `frontend/`. Start is safe to repeat: if those ports are already open, it leaves them alone and prints the URLs. Logs go in `.catalog-desk/` (gitignored). If the API never answers, start prints the last lines of `.catalog-desk/api.log`.
 
 `make push` uploads the current branch to Anh’s GitHub repo. It uses the `github` remote when that remote already exists (HTTPS or SSH). If `github` is missing, the script adds `https://github.com/ANHVU280598/pokedesk.git`. It does not force-push and it does not pull first. To use SSH instead:
 
