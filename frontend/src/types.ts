@@ -214,3 +214,5 @@ export type DuplicateHint = {
 }
 
 export type View = "new" | "live" | "results" | "history" | "settings" | "database"
+
+export type MatchHandoff = { view: "results"; jobId: number } | { view: "database" }

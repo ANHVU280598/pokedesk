@@ -15,19 +15,20 @@ import {
   ApiError,
   clearJobTcgMatches,
   clearProductTcgMatch,
-  getJob,
   getProduct,
   listJobs,
   listObservations,
   matchJobOnTcg,
 } from "../api"
 import { formatBought, formatCount, formatMoney, formatRating, formatWhen, sourceLabel } from "../format"
-import type { Job, Observation, Product } from "../types"
+import type { Job, MatchHandoff, Observation, Product } from "../types"
 
 export function Results({
   initialJobId,
+  onStartMatch,
 }: {
   initialJobId: number | null
+  onStartMatch: (matchJobId: number, returnTo: MatchHandoff) => void
 }) {
   const [jobs, setJobs] = useState<Job[]>([])
   const [jobId, setJobId] = useState<number | null>(initialJobId)
@@ -110,17 +111,13 @@ export function Results({
     if (jobId == null) return
     setMatching(true)
     setError(null)
-    setMatchNote("Looking up TCGPlayer…")
+    setMatchNote(null)
     try {
       const queued = await matchJobOnTcg(jobId)
-      const done = await waitForJob(queued.id)
-      setMatchNote(done.error_message || `Match ${done.status}.`)
-      setReloadKey((value) => value + 1)
+      onStartMatch(queued.id, { view: "results", jobId })
     } catch (err) {
-      setMatchNote(null)
-      setError(err instanceof ApiError ? err.message : "TCGPlayer match failed.")
-    } finally {
       setMatching(false)
+      setError(err instanceof ApiError ? err.message : "TCGPlayer match failed.")
     }
   }
 
@@ -250,6 +247,9 @@ export function Results({
         >
           Clear matches
         </Button>
+        <p className="text-xs text-muted-foreground">
+          Click to look up this job on TCGPlayer. Matching stays idle until you do.
+        </p>
         {matchNote ? <p className="text-sm text-muted-foreground">{matchNote}</p> : null}
       </div>
 
@@ -358,6 +358,7 @@ export function Results({
         item={detail}
         onClose={() => setDetail(null)}
         onChanged={() => setReloadKey((value) => value + 1)}
+        onStartMatch={onStartMatch}
       />
     </div>
   )
@@ -387,24 +388,16 @@ function Thumb({ src, large = false }: { src: string | null; large?: boolean }) 
   )
 }
 
-async function waitForJob(id: number) {
-  for (;;) {
-    const job = await getJob(id)
-    if (job.status !== "queued" && job.status !== "running" && job.status !== "paused") {
-      return job
-    }
-    await new Promise((resolve) => window.setTimeout(resolve, 400))
-  }
-}
-
 function DetailDrawer({
   item,
   onClose,
   onChanged,
+  onStartMatch,
 }: {
   item: Observation | null
   onClose: () => void
   onChanged: () => void
+  onStartMatch: (matchJobId: number, returnTo: MatchHandoff) => void
 }) {
   const [product, setProduct] = useState<Product | null>(null)
   const [copyLabel, setCopyLabel] = useState("Copy ASIN")
@@ -450,10 +443,7 @@ function DetailDrawer({
     setMatchError(null)
     try {
       const queued = await matchJobOnTcg(item.job_id, [item.product_id])
-      await waitForJob(queued.id)
-      onChanged()
-      const next = await getProduct(item.product_id)
-      setProduct(next)
+      onStartMatch(queued.id, { view: "results", jobId: item.job_id })
     } catch (err) {
       setMatchError(err instanceof ApiError ? err.message : "Could not re-run the match.")
     } finally {

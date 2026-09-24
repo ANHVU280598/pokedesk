@@ -16,7 +16,6 @@ import {
   deleteJob,
   deleteObservation,
   deleteProduct,
-  getJob,
   getProduct,
   listDuplicates,
   listJobs,
@@ -26,13 +25,17 @@ import {
   updateProduct,
 } from "../api"
 import { formatBought, formatMoney, formatWhen, sourceLabel } from "../format"
-import type { CatalogProduct, DuplicateHint, Job, Product } from "../types"
+import type { CatalogProduct, DuplicateHint, Job, MatchHandoff, Product } from "../types"
 
 const PAGE = 25
 
 type Tab = "products" | "jobs" | "duplicates"
 
-export function Database() {
+export function Database({
+  onStartMatch,
+}: {
+  onStartMatch: (matchJobId: number, returnTo: MatchHandoff) => void
+}) {
   const [tab, setTab] = useState<Tab>("products")
 
   return (
@@ -62,12 +65,16 @@ export function Database() {
           </Button>
         ))}
       </div>
-      {tab === "products" ? <Products /> : tab === "jobs" ? <Jobs /> : <Duplicates />}
+      {tab === "products" ? <Products onStartMatch={onStartMatch} /> : tab === "jobs" ? <Jobs /> : <Duplicates />}
     </div>
   )
 }
 
-function Products() {
+function Products({
+  onStartMatch,
+}: {
+  onStartMatch: (matchJobId: number, returnTo: MatchHandoff) => void
+}) {
   const [query, setQuery] = useState("")
   const [debounced, setDebounced] = useState("")
   const [hasAsin, setHasAsin] = useState("any")
@@ -146,13 +153,7 @@ function Products() {
     setMatchNote("Looking up TCGPlayer…")
     try {
       const queued = await matchProductsOnTcg(items.map((item) => item.id))
-      let done = queued
-      while (done.status === "queued" || done.status === "running" || done.status === "paused") {
-        await new Promise((resolve) => window.setTimeout(resolve, 400))
-        done = await getJob(queued.id)
-      }
-      setMatchNote(done.error_message || `Match ${done.status}.`)
-      reload()
+      onStartMatch(queued.id, { view: "database" })
     } catch (err) {
       setMatchNote(null)
       setError(err instanceof ApiError ? err.message : "TCGPlayer match failed.")
@@ -283,6 +284,7 @@ function Products() {
         productId={selectedId}
         onClose={() => setSelectedId(null)}
         onChanged={reload}
+        onStartMatch={onStartMatch}
       />
     </div>
   )
@@ -292,10 +294,12 @@ function ProductEditor({
   productId,
   onClose,
   onChanged,
+  onStartMatch,
 }: {
   productId: number | null
   onClose: () => void
   onChanged: () => void
+  onStartMatch: (matchJobId: number, returnTo: MatchHandoff) => void
 }) {
   const [product, setProduct] = useState<Product | null>(null)
   const [section, setSection] = useState<"edit" | "observations">("edit")
@@ -380,14 +384,7 @@ function ProductEditor({
     setError(null)
     try {
       const queued = await matchProductsOnTcg([productId])
-      let done = queued
-      while (done.status === "queued" || done.status === "running" || done.status === "paused") {
-        await new Promise((resolve) => window.setTimeout(resolve, 400))
-        done = await getJob(queued.id)
-      }
-      const loaded = await getProduct(productId)
-      setProduct(loaded)
-      onChanged()
+      onStartMatch(queued.id, { view: "database" })
     } catch (err) {
       setError(err instanceof ApiError ? err.message : "Could not re-run the match.")
     } finally {

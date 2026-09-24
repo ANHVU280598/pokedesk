@@ -4,7 +4,7 @@ import { ApiError, getJob, listJobs, listObservations, matchJobOnTcg, pauseJob, 
 import { FollowUpButton, RecheckButton } from "../components/FollowUps"
 import { StatusChip } from "../components/StatusChip"
 import { formatBought, formatMoney, paginationLabel } from "../format"
-import type { Job, Observation } from "../types"
+import type { Job, MatchHandoff, Observation } from "../types"
 
 const ACTIVE = new Set(["queued", "running", "paused"])
 
@@ -28,11 +28,13 @@ export function LiveJob({
   onOpenResults,
   onJob,
   onAdopt,
+  onStartMatch,
 }: {
   jobId: number | null
   onOpenResults: (jobId: number) => void
   onJob: (job: Job) => void
   onAdopt: (jobId: number) => void
+  onStartMatch: (matchJobId: number, returnTo: MatchHandoff) => void
 }) {
   const [job, setJob] = useState<Job | null>(null)
   const [recent, setRecent] = useState<Observation[]>([])
@@ -101,7 +103,12 @@ export function LiveJob({
   }
 
   if (!job && !error) {
-    return <p className="text-sm text-muted-foreground">Loading job {jobId}…</p>
+    return (
+      <div className="mx-auto max-w-3xl">
+        <h1 className="text-2xl font-semibold tracking-tight">Live job</h1>
+        <p className="mt-3 text-sm text-muted-foreground">Loading job {jobId}…</p>
+      </div>
+    )
   }
 
   if (!job) {
@@ -146,7 +153,9 @@ export function LiveJob({
 
       {job.status === "blocked" ? (
         <div className="mb-5 rounded-lg border border-amber-300 bg-amber-50 px-4 py-3 text-amber-950">
-          <p className="font-medium">Amazon capped or blocked this session</p>
+          <p className="font-medium">
+            {tcg ? "TCGPlayer blocked this match" : "Amazon capped or blocked this session"}
+          </p>
           <p className="mt-1 text-sm">{job.error_message}</p>
           {job.settings.recheck_pending ? (
             <p className="mt-2 text-sm">
@@ -185,7 +194,7 @@ export function LiveJob({
                 onClick={() =>
                   act("tcg", async () => {
                     const queued = await matchJobOnTcg(job.id)
-                    onAdopt(queued.id)
+                    onStartMatch(queued.id, { view: "results", jobId: job.id })
                     return queued
                   })
                 }
@@ -286,7 +295,7 @@ export function LiveJob({
               onClick={() =>
                 act("tcg", async () => {
                   const queued = await matchJobOnTcg(job.id)
-                  onAdopt(queued.id)
+                  onStartMatch(queued.id, { view: "results", jobId: job.id })
                   return queued
                 })
               }

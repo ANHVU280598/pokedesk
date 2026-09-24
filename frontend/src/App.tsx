@@ -1,8 +1,8 @@
-import { useCallback, useEffect, useState } from "react"
+import { useCallback, useEffect, useRef, useState } from "react"
 import { Button } from "@/components/ui/button"
 import { listJobs } from "./api"
 import { Sidebar } from "./components/Sidebar"
-import type { Job, View } from "./types"
+import type { Job, MatchHandoff, View } from "./types"
 import { History } from "./views/History"
 import { Database } from "./views/Database"
 import { LiveJob } from "./views/LiveJob"
@@ -19,6 +19,7 @@ export default function App() {
   const [running, setRunning] = useState(false)
   const [booted, setBooted] = useState(false)
   const [apiDown, setApiDown] = useState(false)
+  const matchHandoff = useRef<{ matchJobId: number; returnTo: MatchHandoff } | null>(null)
 
   const boot = useCallback(async () => {
     try {
@@ -64,8 +65,22 @@ export default function App() {
     setView("results")
   }
 
+  function startMatch(matchJobId: number, returnTo: MatchHandoff) {
+    matchHandoff.current = { matchJobId, returnTo }
+    started(matchJobId)
+  }
+
   const onLiveJob = useCallback((job: Job) => {
     setRunning(ACTIVE.has(job.status))
+    const handoff = matchHandoff.current
+    if (!handoff || job.id !== handoff.matchJobId || ACTIVE.has(job.status)) return
+    matchHandoff.current = null
+    if (handoff.returnTo.view === "results") {
+      setResultsJobId(handoff.returnTo.jobId)
+      setView("results")
+    } else {
+      setView("database")
+    }
   }, [])
 
   return (
@@ -95,13 +110,14 @@ export default function App() {
             onOpenResults={openResults}
             onJob={onLiveJob}
             onAdopt={started}
+            onStartMatch={startMatch}
           />
         ) : view === "results" ? (
-          <Results initialJobId={resultsJobId} />
+          <Results initialJobId={resultsJobId} onStartMatch={startMatch} />
         ) : view === "history" ? (
           <History onView={openResults} onStarted={started} />
         ) : view === "database" ? (
-          <Database />
+          <Database onStartMatch={startMatch} />
         ) : (
           <Settings />
         )}

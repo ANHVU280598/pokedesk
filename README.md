@@ -184,7 +184,7 @@ MVP choices baked in:
 
 ## TCGPlayer match
 
-After an Amazon job has products, **Results**, **Live job**, and **Database** can run **Match on TCGPlayer**. The worker searches TCGPlayer for each title, using the same delay, pause, and stop behavior as an Amazon crawl. It strips “Pokemon”, “TCG”, and pack-count noise from the title, then keeps a hit only when the names share a distinctive token. An empty search, or a clearly unrelated hit, is stored as unmatched. A weaker overlap is marked needs review.
+After an Amazon job has products, click **Match on TCGPlayer** on **Results** to start a match for that job’s list. A finished Amazon scrape leaves matching idle until that click. The same button is on Live job. A product row can also be matched from its detail. The click opens **Live job** for the match pass: progress, pause, and stop apply between products, the same way they do between Amazon pages. When the pass finishes, Results shows the links. The worker strips “Pokemon”, “TCG”, and pack-count noise from the title, then keeps a hit only when the names share a distinctive token. An empty search, or a clearly unrelated hit, is stored as unmatched. A weaker overlap is marked needs review.
 
 A dry-run Amazon job matches against saved search HTML, so tests and fixture scrapes do not open TCGPlayer. Products that have only ever been seen in fixture jobs stay on that path. A product from a live Amazon scrape uses Playwright against `tcgplayer.com` Pokemon search. One pass matches up to 500 products. Soft-blocks keep the matches already stored.
 

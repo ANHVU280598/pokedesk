@@ -72,6 +72,9 @@ def test_fixture_job_match_links_cards_and_leaves_sleeves_unmatched(client):
     assert amazon["pages_visited"] == 2
     assert amazon["settings"]["max_pages"] == 40
 
+    jobs_before_click = client.get("/api/jobs").json()
+    assert all(item["settings"].get("mode") != "tcgplayer" for item in jobs_before_click)
+
     observations = client.get(f"/api/jobs/{amazon['id']}/observations").json()["items"]
     by_asin = {item["asin"]: item for item in observations}
     assert by_asin["B0PKMN0001"]["bought_past_month"] == 1000
