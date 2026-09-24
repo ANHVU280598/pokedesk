@@ -103,6 +103,8 @@ New scrape and Settings can turn on a pattern that runs only after the primary c
 
 Related expansion gathers more products. Recheck probes pagination again. Neither step guarantees Amazon will open more pages.
 
+Those steps stay in the one Playwright browser, context, and page opened for the primary crawl. Each product URL, then the blocked results list, is a `goto` on that page, so cookies, storage, and the job proxy carry across. The pattern does not launch a second browser or a new context per card, and it does not click or scroll to look human. A Recheck you start later from the banner is a new run, after this browser has closed.
+
 ## Proxy
 
 Settings can turn on a proxy (`http`, `https`, or `socks5`) with an optional username and password. New scrape can use that default, turn the proxy off for one job, or set a custom URL. Playwright receives the proxy only for live scrapes. Fixture dry-runs never use it.

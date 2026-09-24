@@ -1,7 +1,10 @@
 """Page fetchers: Playwright for Amazon, local HTML for fixture dry-runs.
 
-Live fetches use a normal desktop browser context. This module does not
-change the user agent, click random products, or otherwise evade detection.
+A live job opens one Chromium browser, one context, and one page. Primary
+crawl, related-item expansion, and the pattern recheck all navigate that page.
+Cookies, storage, and the job proxy stay on that context. This module does not
+open a second browser or context per card, change the user agent, or click
+around to look human.
 """
 
 from __future__ import annotations
@@ -18,6 +21,15 @@ _SHOW_MORE = re.compile(
     re.IGNORECASE,
 )
 _PRODUCT_URL = re.compile(r"/(?:dp|gp/product)/", re.IGNORECASE)
+_RESULTS_READY = (
+    "[data-component-type='s-search-result'], #captchacharacters, "
+    "form[action*='validateCaptcha']"
+)
+_PRODUCT_READY = (
+    "#productTitle, #dp, #ppd, #similarities_feature_div, #sims-feature, "
+    "#sp_detail, #purchase-sims-feature, #anonCarousel1, "
+    "#captchacharacters, form[action*='validateCaptcha']"
+)
 
 
 def _page_number(url: str) -> int:
@@ -66,15 +78,19 @@ class FixtureSession:
 
 
 class PlaywrightSession:
+    """One browser, one context, and one page for an entire job run."""
+
     def __init__(self) -> None:
         self._pw = None
         self._browser = None
+        self._context = None
         self._page = None
         self._url = ""
         self.last_status: int | None = None
 
     @classmethod
     async def launch(cls, *, headless: bool, proxy: dict | None = None) -> PlaywrightSession:
+        """Launch once. Callers must reuse this session instead of launching again."""
         session = cls()
         try:
             from playwright.async_api import async_playwright
@@ -84,12 +100,14 @@ class PlaywrightSession:
             if proxy:
                 launch_args["proxy"] = proxy
             session._browser = await session._pw.chromium.launch(**launch_args)
-            context = await session._browser.new_context(
+            # Proxy is set on the browser. The context keeps cookies and storage
+            # for every later goto in this job.
+            session._context = await session._browser.new_context(
                 locale="en-US",
                 timezone_id="America/Los_Angeles",
                 viewport={"width": 1366, "height": 900},
             )
-            session._page = await context.new_page()
+            session._page = await session._context.new_page()
             session._page.set_default_timeout(20_000)
             return session
         except Exception:
@@ -97,6 +115,7 @@ class PlaywrightSession:
             raise
 
     async def get(self, url: str) -> str:
+        """Load a URL on the existing page. Does not open a browser, context, or page."""
         assert self._page is not None
         response = await self._page.goto(
             url,
@@ -104,13 +123,14 @@ class PlaywrightSession:
             timeout=35_000,
         )
         self.last_status = response.status if response is not None else None
+        product = bool(_PRODUCT_URL.search(url or ""))
         try:
             await self._page.wait_for_selector(
-                "[data-component-type='s-search-result'], #captchacharacters, form[action*='validateCaptcha']",
-                timeout=12_000,
+                _PRODUCT_READY if product else _RESULTS_READY,
+                timeout=8_000 if product else 12_000,
             )
         except Exception:
-            logger.info("results selector not found at %s", url)
+            logger.info("page landmark not found at %s", url)
         self._url = self._page.url
         return await self._page.content()
 
@@ -152,6 +172,7 @@ class PlaywrightSession:
             logger.exception("closing browser")
         finally:
             self._browser = None
+            self._context = None
             self._page = None
             if self._pw is not None:
                 try:

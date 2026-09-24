@@ -335,6 +335,7 @@ async def _stop_or_continue(
             {**patch, "pattern_phase": "recheck", "pattern_handled": True},
         )
         db.set_error_message_if_running(job_id, "Rechecking blocked list…")
+        # The crawl loop loads this URL with the same session. No new browser.
         return str(patch.get("resume_url") or "") or None
     _block(
         job_id,
@@ -347,7 +348,11 @@ async def _stop_or_continue(
 
 
 async def _expand_related(session, job_id: int) -> str:
-    """Open up to N early result cards and store related items found on them."""
+    """Open up to N early result cards on the crawl's existing page.
+
+    session.get navigates that same browser, context, and page. Cookies,
+    storage, and the job proxy stay put. This does not launch another browser.
+    """
     job = db.get_job(job_id)
     if job is None:
         return "failed"
@@ -502,6 +507,10 @@ def _settle_parent_recheck(job_id: int) -> None:
 
 
 async def _open_session(settings: dict):
+    """Open the one session this run will use through recheck.
+
+    Related expansion and the pattern recheck must keep calling this object.
+    """
     resume = str(settings.get("resume_url") or "")
     if settings.get("mode") == "fixture" or resume.startswith("fixture:"):
         return FixtureSession(settings.get("fixture_set") or "pokemon")
