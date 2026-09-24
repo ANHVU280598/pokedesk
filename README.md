@@ -28,6 +28,27 @@ On Linux, Chromium may also need system libraries:
 playwright install-deps chromium
 ```
 
+## Start, pull, restart
+
+From the repo root, one menu covers the usual operator steps:
+
+```bash
+./scripts/catalog-desk.sh
+```
+
+Or run a single action:
+
+```bash
+make start      # API on http://127.0.0.1:8765 and UI on http://127.0.0.1:43123
+make pull       # git pull --ff-only of the current branch
+make restart    # stop both, then start them again
+make stop
+```
+
+`make pull` does not restart a running app. After a pull, run `make restart` so the new code is what is serving. Start is safe to repeat: if those ports are already open, it leaves them alone and prints the URLs. Logs go in `.catalog-desk/` (gitignored).
+
+The same commands work on macOS. The script uses the repo’s `.venv` and `frontend/node_modules`, so run the install steps above once first.
+
 ## Run the API
 
 ```bash
@@ -80,7 +101,7 @@ curl -s -X POST http://127.0.0.1:8765/api/jobs \
   -d '{"mode":"search","search_query":"pokemon booster box","search_terms":"pokemon cards|booster box","max_pages":2,"delay_sec":2}'
 ```
 
-Live Amazon scrapes require a delay of at least 1 second and at most 20 pages. Defaults live in **Settings** (delay, max pages, headless or headed, optional proxy). Headed mode needs a display.
+Live Amazon scrapes require a delay of at least 1 second. Max pages is any whole number from 1 up — there is no 20-page ceiling. A high number does not invent pages: the job still stops when the result list ends or Amazon soft-blocks. Defaults live in **Settings** (delay, max pages, headless or headed, optional proxy). Headed mode needs a display.
 
 ## Follow-up jobs
 

@@ -60,8 +60,8 @@ export function Settings() {
       setError("Default delay must be between 1 and 60 seconds.")
       return
     }
-    if (!Number.isInteger(pages) || pages < 1 || pages > 20) {
-      setError("Default max pages must be a whole number from 1 to 20.")
+    if (!Number.isInteger(pages) || pages < 1) {
+      setError("Default max pages must be a whole number of at least 1.")
       return
     }
     const cards = Number(relatedLimit)
@@ -136,11 +136,13 @@ export function Settings() {
               id="default-pages"
               type="number"
               min={1}
-              max={20}
               value={maxPages}
               onChange={(event) => setMaxPages(event.target.value)}
               className="h-10"
             />
+            <p className="text-xs text-muted-foreground">
+              No page ceiling. A job still stops when results end or Amazon soft-blocks.
+            </p>
           </div>
           <fieldset className="space-y-2">
             <legend className="text-sm font-medium">Browser</legend>

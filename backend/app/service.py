@@ -9,15 +9,14 @@ from app.scraper.urls import DEPARTMENTS, build_search_url, validate_amazon_url,
 from app.schemas import JobCreate, SettingsUpdate
 
 FIXTURE_SETS = {"pokemon", "captcha", "pagecap", "showmore", "relatedcap"}
-MAX_PAGES = 20
 MIN_LIVE_DELAY = 1.0
 MAX_DELAY = 60.0
 
 
 def compose_new_job(body: JobCreate, defaults: dict) -> dict:
     max_pages = defaults["max_pages"] if body.max_pages is None else body.max_pages
-    if not 1 <= int(max_pages) <= MAX_PAGES:
-        raise ValueError(f"Max pages must be between 1 and {MAX_PAGES}")
+    if int(max_pages) < 1:
+        raise ValueError("Max pages must be a whole number of at least 1")
     delay_sec = float(defaults["delay_sec"] if body.delay_sec is None else body.delay_sec)
     if body.mode == "fixture":
         if delay_sec < 0 or delay_sec > MAX_DELAY:

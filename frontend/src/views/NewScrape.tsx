@@ -74,8 +74,8 @@ export function NewScrape({ onStarted }: { onStarted: (jobId: number) => void })
     setError(null)
     const pages = Number(maxPages)
     const delay = Number(delaySec)
-    if (!Number.isInteger(pages) || pages < 1 || pages > 20) {
-      setError("Max pages must be a whole number from 1 to 20.")
+    if (!Number.isInteger(pages) || pages < 1) {
+      setError("Max pages must be a whole number of at least 1.")
       return
     }
     if (!Number.isFinite(delay) || delay < 1 || delay > 60) {
@@ -274,11 +274,13 @@ export function NewScrape({ onStarted }: { onStarted: (jobId: number) => void })
                 id="max-pages"
                 type="number"
                 min={1}
-                max={20}
                 value={maxPages}
                 onChange={(event) => setMaxPages(event.target.value)}
                 className="h-10"
               />
+              <p className="text-xs text-muted-foreground">
+                Any whole number from 1 up. The crawl still stops when the list ends or Amazon blocks.
+              </p>
             </div>
             <div className="space-y-2">
               <Label htmlFor="delay">Delay (seconds)</Label>

@@ -185,3 +185,30 @@ def test_settings_roundtrip(client):
         json={"mode": "search", "search_query": "pokemon cards", "delay_sec": 0.2},
     )
     assert too_fast.status_code == 400
+
+
+def test_max_pages_above_twenty_is_accepted_and_does_not_invent_pages(client):
+    saved = client.put(
+        "/api/settings",
+        json={"delay_sec": 2.5, "max_pages": 40, "headless": True},
+    )
+    assert saved.status_code == 200
+    assert saved.json()["max_pages"] == 40
+
+    rejected = client.put(
+        "/api/settings",
+        json={"delay_sec": 2.5, "max_pages": 0, "headless": True},
+    )
+    assert rejected.status_code == 422
+
+    zero = client.post(
+        "/api/jobs",
+        json={"mode": "fixture", "fixture_set": "pokemon", "max_pages": 0, "delay_sec": 0},
+    )
+    assert zero.status_code == 422
+
+    created = _fixture(client, max_pages=40)
+    job = _wait(client, created["id"], lambda item: item["status"] == "completed")
+    assert job["settings"]["max_pages"] == 40
+    assert job["pages_visited"] == 2
+    assert job["items_scraped"] == 4

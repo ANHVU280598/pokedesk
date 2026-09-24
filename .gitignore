@@ -13,3 +13,4 @@ data/*.db-journal
 data/settings.json
 *.log
 .DS_Store
+.catalog-desk/

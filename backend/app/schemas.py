@@ -15,7 +15,7 @@ class JobCreate(BaseModel):
     min_price: float | None = None
     max_price: float | None = None
     department: str | None = "all"
-    max_pages: int | None = Field(default=None, ge=1, le=20)
+    max_pages: int | None = Field(default=None, ge=1)
     delay_sec: float | None = Field(default=None, ge=0, le=60)
     headless: bool | None = None
     fixture_set: Literal["pokemon", "captcha", "pagecap", "showmore", "relatedcap"] | None = None
@@ -30,7 +30,7 @@ class JobCreate(BaseModel):
 
 class SettingsUpdate(BaseModel):
     delay_sec: float = Field(ge=1, le=60)
-    max_pages: int = Field(ge=1, le=20)
+    max_pages: int = Field(ge=1)
     headless: bool
     proxy_enabled: bool = False
     proxy_url: str = ""
