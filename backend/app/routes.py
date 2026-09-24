@@ -3,8 +3,9 @@
 from __future__ import annotations
 
 from fastapi import APIRouter, HTTPException, Request
+from fastapi.responses import Response
 
-from app import db, followups, settings_store
+from app import db, exports, followups, settings_store
 from app.schemas import (
     FollowUpCreate,
     JobCreate,
@@ -347,6 +348,107 @@ async def remove_product(product_id: int, force: bool = False) -> dict:
 async def remove_observation(observation_id: int) -> dict:
     job_id = _catalog(lambda: db.delete_observation(observation_id))
     return {"ok": True, "job_id": job_id}
+
+
+@router.get("/exports/{kind}")
+async def download_export(
+    kind: str,
+    format: str = "csv",
+    job_id: int | None = None,
+    product_id: int | None = None,
+    q: str | None = None,
+    min_price: float | None = None,
+    max_price: float | None = None,
+    min_rating: float | None = None,
+    min_bought: int | None = None,
+    sort: str = "page",
+    has_asin: str | None = None,
+    last_seen_after: str | None = None,
+    last_seen_before: str | None = None,
+    limit: int = 500,
+    offset: int = 0,
+):
+    if kind not in exports.DATASETS:
+        raise HTTPException(404, "Unknown export")
+    if format not in {"csv", "xlsx", "json"}:
+        raise HTTPException(400, "format must be csv, xlsx, or json")
+    if sort not in SORTS:
+        raise HTTPException(400, "Unknown sort")
+    if has_asin not in {None, "", "yes", "no", "any"}:
+        raise HTTPException(400, "has_asin must be yes, no, or any")
+    if job_id is not None and db.get_job(job_id) is None:
+        raise HTTPException(404, "Job not found")
+    if product_id is not None:
+        state = exports.product_match_state(product_id)
+        if state is None:
+            raise HTTPException(404, "Product not found")
+        if kind == "price-compare" and state != "matched":
+            raise HTTPException(409, "Confirm a TCGPlayer listing before comparing prices")
+    try:
+        after, before = _seen_bounds(last_seen_after, last_seen_before)
+    except ValueError as exc:
+        raise HTTPException(400, str(exc)) from exc
+    query = q.strip() if q else None
+    asin_filter = None if has_asin in {None, "", "any"} else has_asin
+    if kind == "amazon-products":
+        columns, rows, sheet = exports.amazon_rows(
+            job_id=job_id,
+            product_id=product_id,
+            q=query,
+            min_price=min_price,
+            max_price=max_price,
+            min_rating=min_rating,
+            min_bought=min_bought,
+            sort=sort,
+            has_asin=asin_filter,
+            last_seen_after=after,
+            last_seen_before=before,
+        )
+    elif kind == "tcgplayer-matches":
+        columns, sheet = exports.TCG_COLUMNS, "TCGPlayer matches"
+        rows = exports.tcg_rows(
+            job_id=job_id,
+            product_id=product_id,
+            q=query,
+            min_price=min_price,
+            max_price=max_price,
+            min_rating=min_rating,
+            min_bought=min_bought,
+            has_asin=asin_filter,
+            last_seen_after=after,
+            last_seen_before=before,
+        )
+    else:
+        columns, sheet = exports.COMPARE_COLUMNS, "Price compare"
+        rows = exports.price_compare_rows(
+            job_id=job_id,
+            product_id=product_id,
+            q=query,
+            min_price=min_price,
+            max_price=max_price,
+            min_rating=min_rating,
+            min_bought=min_bought,
+            has_asin=asin_filter,
+            last_seen_after=after,
+            last_seen_before=before,
+        )
+    if format == "json":
+        bounded = max(1, min(limit, 1000))
+        start = max(0, offset)
+        return {"total": len(rows), "items": rows[start : start + bounded]}
+    extension = "csv" if format == "csv" else "xlsx"
+    filename = exports.export_filename(kind, extension, job_id=job_id)
+    if format == "csv":
+        payload = exports.render_csv(columns, rows)
+        media = "text/csv; charset=utf-8"
+    else:
+        payload = exports.render_xlsx(columns, rows, sheet_name=sheet)
+        media = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+    return Response(
+        content=payload,
+        media_type=media,
+        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+    )
 
 
 def _public_job(job: dict) -> dict:

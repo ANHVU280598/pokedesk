@@ -191,6 +191,19 @@ The worker strips “Pokemon”, “TCG”, and pack-count noise from the title,
 
 A dry-run Amazon job matches against saved search HTML, so tests and fixture scrapes do not open TCGPlayer. Products that have only ever been seen in fixture jobs stay on that path. A product from a live Amazon scrape uses Playwright against `tcgplayer.com` Pokemon search. One pass matches up to 500 products. Soft-blocks keep the matches already stored.
 
+## Export
+
+Each list has **Export current list** with **CSV** and **Excel** (.xlsx). The file uses the filters on that screen. Clear the filters to download the whole list. Prices are copied from stored rows; a missing price stays blank.
+
+| List | Where | Filename |
+| --- | --- | --- |
+| Amazon cards in one job | Results | `amazon-products-job-<id>-YYYYMMDD.csv` (or `.xlsx`) |
+| Amazon catalog | Database → Products | `amazon-products-YYYYMMDD.csv` |
+| TCGPlayer candidates and confirmed matches | Results for the current job, or Database → TCGPlayer | `tcgplayer-matches-….csv` |
+| Confirmed Amazon ↔ TCGPlayer pairs, with both prices and the difference (Amazon minus TCGPlayer) | Results for the current job, Database → Price compare, or the compare page for one pair | `price-compare-….csv` |
+
+The date is UTC. A job-scoped file includes `job-<id>` in the name. Columns follow the table, plus product id, ASIN, and URLs.
+
 ## API
 
 | Method | Path | Purpose |
@@ -213,6 +226,7 @@ A dry-run Amazon job matches against saved search HTML, so tests and fixture scr
 | DELETE | `/api/products/{id}/tcg-match` | Clear one product’s TCGPlayer match |
 | POST | `/api/products/{id}/tcg-confirm` | Confirm one stored candidate (`candidate_id`) as the match |
 | GET | `/api/products/{id}/compare` | Amazon price beside the confirmed TCGPlayer price. 409 until the listing is confirmed |
+| GET | `/api/exports/{kind}` | Download `amazon-products`, `tcgplayer-matches`, or `price-compare`. `format` is `csv`, `xlsx`, or `json`. Job lists take `job_id` plus the Results filters (`q`, `min_rating`, `sort`). Catalog lists take `q`, `has_asin`, `last_seen_after`, `last_seen_before`. `product_id` limits a price compare to one pair |
 | GET | `/api/products` | Search the catalog (`q`, `has_asin`, `last_seen_after`, `last_seen_before`, `limit`, `offset`) |
 | GET | `/api/products/duplicates` | Same-title and no-ASIN hints |
 | POST | `/api/products/merge` | Merge `drop_id` into `keep_id` and reassign observations |
@@ -228,6 +242,7 @@ A dry-run Amazon job matches against saved search HTML, so tests and fixture scr
 backend/app/          FastAPI app, schema, worker
 backend/app/scraper/  HTML parser, URL builder, Playwright + fixture sessions
 backend/app/tcg/      TCGPlayer query, match, and fixture search HTML
+backend/app/exports.py CSV and Excel for Amazon, TCGPlayer, and price compare
 backend/app/fixtures/ Saved Amazon-like HTML for dry-runs
 backend/tests/        Parser, upsert, and API tests
 frontend/             React + Vite operator UI

@@ -10,7 +10,9 @@ import {
   SheetTitle,
 } from "@/components/ui/sheet"
 import { ConfirmTcg } from "../components/ConfirmTcg"
+import { ExportGroup } from "../components/ExportMenu"
 import { TcgMatchCell } from "../components/TcgMatch"
+import { CompareList, TcgList } from "./CatalogLists"
 import {
   ApiError,
   clearProductTcgMatch,
@@ -30,7 +32,7 @@ import type { CatalogProduct, DuplicateHint, Job, MatchHandoff, Product } from "
 
 const PAGE = 25
 
-type Tab = "products" | "jobs" | "duplicates"
+type Tab = "products" | "tcg" | "compare" | "jobs" | "duplicates"
 
 export function Database({
   onStartMatch,
@@ -53,6 +55,8 @@ export function Database({
         {(
           [
             ["products", "Products"],
+            ["tcg", "TCGPlayer"],
+            ["compare", "Price compare"],
             ["jobs", "Jobs"],
             ["duplicates", "Duplicates"],
           ] as const
@@ -70,6 +74,10 @@ export function Database({
       </div>
       {tab === "products" ? (
         <Products onStartMatch={onStartMatch} onCompare={onCompare} />
+      ) : tab === "tcg" ? (
+        <TcgList />
+      ) : tab === "compare" ? (
+        <CompareList onCompare={onCompare} />
       ) : tab === "jobs" ? (
         <Jobs />
       ) : (
@@ -222,6 +230,19 @@ function Products({
             />
           </div>
         </div>
+      </div>
+      <div className="mb-4 rounded-xl border bg-card p-3">
+        <ExportGroup
+          label="Export current list"
+          hint="Amazon products that match these filters. Clear the filters to export the whole catalog."
+          dataset="amazon-products"
+          params={{
+            q: debounced,
+            has_asin: hasAsin === "any" ? "" : hasAsin,
+            last_seen_after: seenAfter,
+            last_seen_before: seenBefore,
+          }}
+        />
       </div>
       <div className="mb-3 flex flex-wrap items-center gap-2">
         <Button type="button" size="sm" disabled={matching || !items?.length} onClick={() => void matchVisible()}>

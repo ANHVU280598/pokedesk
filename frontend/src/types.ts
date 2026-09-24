@@ -265,6 +265,48 @@ export type DuplicateHint = {
   drop_asin: string | null
 }
 
+export type TcgExportRow = {
+  product_id: number
+  asin: string | null
+  amazon_title: string
+  amazon_url: string | null
+  match_status: string | null
+  query: string | null
+  candidate_id: number | null
+  confirmed: string
+  tcg_name: string | null
+  set_name: string | null
+  tcg_url: string | null
+  image_url: string | null
+  price_label: string | null
+  price: number | null
+  currency: string | null
+  other_prices: string | null
+  confidence: number | null
+}
+
+export type CompareExportRow = {
+  product_id: number
+  amazon_title: string
+  asin: string | null
+  amazon_price: number | null
+  amazon_currency: string | null
+  bought_past_month: number | null
+  bought_past_month_text: string | null
+  amazon_url: string | null
+  amazon_image_url: string | null
+  tcg_name: string | null
+  tcg_set: string | null
+  tcg_price_label: string | null
+  tcg_price: number | null
+  tcg_currency: string | null
+  tcg_other_prices: string | null
+  tcg_url: string | null
+  tcg_image_url: string | null
+  difference: number | null
+  lower: "amazon" | "tcgplayer" | "same" | null
+}
+
 export type View = "new" | "live" | "results" | "history" | "settings" | "database" | "compare"
 
 export type MatchHandoff = { view: "results"; jobId: number } | { view: "database" }

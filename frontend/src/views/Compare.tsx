@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react"
 import { Button } from "@/components/ui/button"
+import { ExportGroup } from "../components/ExportMenu"
 import { ApiError, getCompare } from "../api"
 import { formatBought, formatMoney } from "../format"
 import type { PriceCompare } from "../types"
@@ -38,9 +39,17 @@ export function Compare({
           <h1 className="text-2xl font-semibold tracking-tight">Compare prices</h1>
           <p className="mt-1 text-sm text-muted-foreground">Amazon listing beside the confirmed TCGPlayer card.</p>
         </div>
-        <Button type="button" variant="outline" size="sm" onClick={onBack}>
-          Back
-        </Button>
+        <div className="flex flex-wrap items-center gap-2">
+          <ExportGroup
+            label="Export this comparison"
+            dataset="price-compare"
+            params={{ product_id: productId }}
+            disabled={productId == null}
+          />
+          <Button type="button" variant="outline" size="sm" onClick={onBack}>
+            Back
+          </Button>
+        </div>
       </header>
       {error ? (
         <p className="rounded-md border border-rose-200 bg-rose-50 px-3 py-2 text-sm text-rose-900">{error}</p>

@@ -11,6 +11,7 @@ import {
   SheetTitle,
 } from "@/components/ui/sheet"
 import { ConfirmTcg } from "../components/ConfirmTcg"
+import { ExportGroup } from "../components/ExportMenu"
 import { TcgMatchCell } from "../components/TcgMatch"
 import {
   ApiError,
@@ -242,6 +243,30 @@ export function Results({
             <option value="bought">Bought last month</option>
           </select>
         </div>
+      </div>
+
+      <div className="mb-4 space-y-3 rounded-xl border bg-card p-3">
+        <ExportGroup
+          label="Export current list"
+          hint="Amazon cards in this job. Search and minimum rating narrow the file. Clear them to export the whole job."
+          dataset="amazon-products"
+          params={{ job_id: jobId, q: debounced, min_rating: minRating, sort }}
+          disabled={jobId == null}
+        />
+        <ExportGroup
+          label="Export TCGPlayer list"
+          hint="Candidates and confirmed matches for those same cards."
+          dataset="tcgplayer-matches"
+          params={{ job_id: jobId, q: debounced, min_rating: minRating }}
+          disabled={jobId == null}
+        />
+        <ExportGroup
+          label="Export price compare"
+          hint="Confirmed Amazon and TCGPlayer pairs only. A missing price stays blank."
+          dataset="price-compare"
+          params={{ job_id: jobId, q: debounced, min_rating: minRating }}
+          disabled={jobId == null}
+        />
       </div>
 
       <div className="mb-4 flex flex-wrap items-center gap-2">

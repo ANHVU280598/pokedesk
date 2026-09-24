@@ -242,6 +242,47 @@ export function getCompare(productId: number) {
   return api<PriceCompare>(`/api/products/${productId}/compare`)
 }
 
+export type ExportParams = Record<string, string | number | null | undefined>
+
+function exportQuery(params: ExportParams) {
+  const query = new URLSearchParams()
+  for (const [key, value] of Object.entries(params)) {
+    if (value !== undefined && value !== null && value !== "") query.set(key, String(value))
+  }
+  const suffix = query.size ? `?${query}` : ""
+  return suffix
+}
+
+export function listExport<T>(dataset: string, params: ExportParams = {}) {
+  return api<{ total: number; items: T[] }>(`/api/exports/${dataset}${exportQuery({ ...params, format: "json" })}`)
+}
+
+export async function downloadExport(dataset: string, params: ExportParams = {}) {
+  const response = await fetch(`/api/exports/${dataset}${exportQuery(params)}`)
+  if (!response.ok) {
+    let detail = response.statusText || "Export failed"
+    try {
+      const body = (await response.json()) as { detail?: unknown }
+      if (typeof body.detail === "string") detail = body.detail
+    } catch {
+      /* keep the status text */
+    }
+    throw new ApiError(response.status, detail || "Export failed")
+  }
+  const blob = await response.blob()
+  const disposition = response.headers.get("content-disposition") || ""
+  const matched = /filename="([^"]+)"/.exec(disposition)
+  const filename = matched?.[1] || `${dataset}.${params.format === "xlsx" ? "xlsx" : "csv"}`
+  const url = URL.createObjectURL(blob)
+  const link = document.createElement("a")
+  link.href = url
+  link.download = filename
+  document.body.appendChild(link)
+  link.click()
+  link.remove()
+  URL.revokeObjectURL(url)
+}
+
 export function deleteObservation(id: number) {
   return api<{ ok: boolean; job_id: number }>(`/api/observations/${id}`, {
     method: "DELETE",
