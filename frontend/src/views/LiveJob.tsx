@@ -208,6 +208,12 @@ export function LiveJob({
         </p>
       ) : null}
 
+      {patternStatus(job) ? (
+        <p className="mb-5 rounded-lg border border-sky-200 bg-sky-50 px-4 py-3 text-sm text-sky-950">
+          {patternStatus(job)}
+        </p>
+      ) : null}
+
       <section className="rounded-xl border bg-card p-5 shadow-sm">
         <div className="flex flex-wrap items-center justify-between gap-2 text-sm">
           <span>
@@ -221,10 +227,9 @@ export function LiveJob({
           <div className="h-full bg-primary transition-all" style={{ width: `${pct}%` }} />
         </div>
         <p className="mt-3 text-xs text-muted-foreground">
-          {patternStatus(job) ??
-            (job.pages_visited === 0 && active
-              ? "Opening the first page…"
-              : "Pause and stop take effect between pages.")}
+          {job.pages_visited === 0 && active
+            ? "Opening the first page…"
+            : "Pause and stop take effect between pages."}
         </p>
         {error ? <p className="mt-3 text-sm text-rose-800">{error}</p> : null}
         <div className="mt-4 flex flex-wrap gap-2">

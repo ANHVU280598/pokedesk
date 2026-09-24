@@ -204,8 +204,6 @@ async def run_job(job_id: int) -> None:
                 next_page_number=page_num + 1,
                 resume_url=parsed.next_url or page_url,
             )
-            if settings.get("pattern_phase") == "recheck":
-                db.merge_settings(job_id, {"pattern_phase": None})
             logger.info(
                 "job %s page %s mode %s cards %s",
                 job_id,
@@ -419,8 +417,15 @@ def _complete(job_id: int, message: str | None) -> None:
     if outcome:
         db.merge_settings(
             job_id,
-            {"recheck_mode": None, "recheck_outcome": outcome, "recheck_pending": False},
+            {
+                "recheck_mode": None,
+                "recheck_outcome": outcome,
+                "recheck_pending": False,
+                "pattern_phase": None,
+            },
         )
+    elif job and (job.get("settings") or {}).get("pattern_phase"):
+        db.merge_settings(job_id, {"pattern_phase": None})
 
 
 def _block(
@@ -453,8 +458,15 @@ def _block(
     if outcome:
         db.merge_settings(
             job_id,
-            {"recheck_mode": None, "recheck_outcome": outcome, "recheck_pending": False},
+            {
+                "recheck_mode": None,
+                "recheck_outcome": outcome,
+                "recheck_pending": False,
+                "pattern_phase": None,
+            },
         )
+    elif job and (job.get("settings") or {}).get("pattern_phase"):
+        db.merge_settings(job_id, {"pattern_phase": None})
 
 
 def _recheck_advanced(job: dict, pages_visited: int) -> bool:
