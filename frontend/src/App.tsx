@@ -81,14 +81,10 @@ export default function App() {
 
   const onLiveJob = useCallback((job: Job) => {
     setRunning(ACTIVE.has(job.status))
-    const handoff = matchHandoff.current
-    if (!handoff || job.id !== handoff.matchJobId || ACTIVE.has(job.status)) return
-    matchHandoff.current = null
-    if (handoff.returnTo.view === "results") {
-      setResultsJobId(handoff.returnTo.jobId)
-      setView("results")
-    } else {
-      setView("database")
+    // A finished or failed match stays on this screen. Leaving immediately
+    // made a fast pass or an error look like the click did nothing.
+    if (matchHandoff.current && job.id === matchHandoff.current.matchJobId && !ACTIVE.has(job.status)) {
+      matchHandoff.current = null
     }
   }, [])
 
@@ -124,14 +120,13 @@ export default function App() {
         ) : view === "results" ? (
           <Results
             initialJobId={resultsJobId}
-            onStartMatch={startMatch}
             onJobChange={setResultsJobId}
             onCompare={(productId) => openCompare(productId, "results")}
           />
         ) : view === "history" ? (
           <History onView={openResults} onStarted={started} />
         ) : view === "database" ? (
-          <Database onStartMatch={startMatch} onCompare={(productId) => openCompare(productId, "database")} />
+          <Database onCompare={(productId) => openCompare(productId, "database")} />
         ) : view === "compare" ? (
           <Compare productId={compareProductId} onBack={() => setView(compareFrom)} />
         ) : (

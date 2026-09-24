@@ -207,10 +207,23 @@ export function deleteProduct(id: number, force = false) {
   return api<{ ok: boolean }>(`/api/products/${id}${suffix}`, { method: "DELETE" })
 }
 
-export function matchJobOnTcg(jobId: number, productIds?: number[]) {
+export function matchJobOnTcg(
+  jobId: number,
+  body: {
+    productIds?: number[]
+    rematch?: boolean
+    q?: string
+    minRating?: string
+  } = {},
+) {
   return api<Job>(`/api/jobs/${jobId}/tcg-match`, {
     method: "POST",
-    body: JSON.stringify(productIds ? { product_ids: productIds } : {}),
+    body: JSON.stringify({
+      product_ids: body.productIds,
+      rematch: Boolean(body.rematch),
+      q: body.q || undefined,
+      min_rating: body.minRating ? Number(body.minRating) : undefined,
+    }),
   })
 }
 
@@ -220,10 +233,24 @@ export function clearJobTcgMatches(jobId: number) {
   })
 }
 
-export function matchProductsOnTcg(productIds: number[]) {
+export function matchProductsOnTcg(body: {
+  productIds?: number[]
+  rematch?: boolean
+  q?: string
+  hasAsin?: string
+  lastSeenAfter?: string
+  lastSeenBefore?: string
+}) {
   return api<Job>("/api/products/tcg-match", {
     method: "POST",
-    body: JSON.stringify({ product_ids: productIds }),
+    body: JSON.stringify({
+      product_ids: body.productIds,
+      rematch: Boolean(body.rematch),
+      q: body.q || undefined,
+      has_asin: body.hasAsin && body.hasAsin !== "any" ? body.hasAsin : undefined,
+      last_seen_after: body.lastSeenAfter || undefined,
+      last_seen_before: body.lastSeenBefore || undefined,
+    }),
   })
 }
 

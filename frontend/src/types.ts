@@ -98,6 +98,8 @@ export type Observation = {
   tcg_currency?: string | null
   tcg_confidence?: number | null
   tcg_query?: string | null
+  tcg_match_source?: string | null
+  tcg_error?: string | null
 }
 
 export type ObservationPage = {
@@ -143,6 +145,8 @@ export type Product = {
   tcg_currency?: string | null
   tcg_confidence?: number | null
   tcg_query?: string | null
+  tcg_match_source?: string | null
+  tcg_error?: string | null
   tcg_candidates?: TcgCandidate[]
 }
 
@@ -207,6 +211,8 @@ export type CatalogProduct = {
   tcg_price?: number | null
   tcg_price_label?: string | null
   tcg_currency?: string | null
+  tcg_match_source?: string | null
+  tcg_error?: string | null
 }
 
 export type TcgPrice = {

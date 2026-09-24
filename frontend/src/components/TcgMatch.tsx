@@ -9,6 +9,8 @@ export type TcgFields = {
   tcg_price?: number | null
   tcg_price_label?: string | null
   tcg_currency?: string | null
+  tcg_match_source?: string | null
+  tcg_error?: string | null
 }
 
 export function TcgMatchCell({
@@ -25,13 +27,21 @@ export function TcgMatchCell({
   if (!match.tcg_status) {
     return <span className="text-muted-foreground">—</span>
   }
+  if (match.tcg_status === "error") {
+    return (
+      <span className="block max-w-[220px] text-rose-800">
+        <span className="block text-xs font-medium">Error</span>
+        <span className="block text-xs">{match.tcg_error || "TCGPlayer lookup failed."}</span>
+      </span>
+    )
+  }
   if (match.tcg_status === "unmatched") {
-    return <span className="text-muted-foreground">Unmatched</span>
+    return <span className="text-muted-foreground">No match</span>
   }
   if (match.tcg_status === "needs_confirm") {
     return (
       <span className="block max-w-[220px]">
-        <span className="block text-xs text-amber-800">Several listings</span>
+        <span className="block text-xs text-amber-800">Needs your pick</span>
         {productId != null && onConfirm ? (
           <Button
             type="button"
@@ -74,6 +84,9 @@ export function TcgMatchCell({
         <span className="block truncate text-xs text-muted-foreground">{match.tcg_set}</span>
       ) : null}
       {price ? <span className="block text-xs text-muted-foreground">{price}</span> : null}
+      {match.tcg_match_source === "auto" ? (
+        <span className="block text-xs text-muted-foreground">Auto</span>
+      ) : null}
       {productId != null && (onCompare || onConfirm) ? (
         <span className="mt-1 flex flex-wrap gap-1">
           {onCompare ? (

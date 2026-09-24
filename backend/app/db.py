@@ -86,7 +86,8 @@ def _migrate_tcg_matches(conn: sqlite3.Connection) -> None:
     if row is None:
         return
     sql = row["sql"] or ""
-    if "needs_confirm" in sql and "price_label" in sql:
+    cols = {item["name"] for item in conn.execute("PRAGMA table_info(tcgplayer_matches)").fetchall()}
+    if "needs_confirm" in sql and "'error'" in sql and "match_source" in cols and "error_text" in cols:
         return
     conn.execute("ALTER TABLE tcgplayer_matches RENAME TO tcgplayer_matches_old")
     conn.execute(
@@ -95,7 +96,7 @@ def _migrate_tcg_matches(conn: sqlite3.Connection) -> None:
           product_id INTEGER PRIMARY KEY REFERENCES products(id) ON DELETE CASCADE,
           job_id INTEGER REFERENCES scrape_jobs(id) ON DELETE SET NULL,
           query TEXT NOT NULL,
-          status TEXT NOT NULL CHECK (status IN ('matched', 'needs_confirm', 'unmatched')),
+          status TEXT NOT NULL CHECK (status IN ('matched', 'needs_confirm', 'unmatched', 'error')),
           tcg_url TEXT,
           tcg_name TEXT,
           tcg_set TEXT,
@@ -105,19 +106,28 @@ def _migrate_tcg_matches(conn: sqlite3.Connection) -> None:
           currency TEXT,
           confidence REAL,
           raw_json TEXT,
-          matched_at TEXT NOT NULL
+          matched_at TEXT NOT NULL,
+          match_source TEXT,
+          error_text TEXT
         )
         """
     )
+
+    def _copied(name: str) -> str:
+        return name if name in cols else "NULL"
+
     conn.execute(
-        """
+        f"""
         INSERT INTO tcgplayer_matches (
           product_id, job_id, query, status, tcg_url, tcg_name, tcg_set,
-          price, currency, confidence, raw_json, matched_at
+          image_url, price, price_label, currency, confidence, raw_json, matched_at,
+          match_source, error_text
         )
         SELECT product_id, job_id, query,
                CASE status WHEN 'needs_review' THEN 'needs_confirm' ELSE status END,
-               tcg_url, tcg_name, tcg_set, price, currency, confidence, raw_json, matched_at
+               tcg_url, tcg_name, tcg_set,
+               {_copied("image_url")}, price, {_copied("price_label")}, currency, confidence, raw_json, matched_at,
+               {_copied("match_source")}, {_copied("error_text")}
         FROM tcgplayer_matches_old
         """
     )
@@ -337,6 +347,11 @@ def stop_job(job_id: int) -> dict:
         settings = _settings(row)
         if status in {"queued", "running", "paused"}:
             settings["stopped_by_operator"] = True
+            stop_message = (
+                "Match cancelled. Rows already checked were kept."
+                if settings.get("mode") == "tcgplayer"
+                else "Stopped by operator"
+            )
             conn.execute(
                 """
                 UPDATE scrape_jobs
@@ -350,7 +365,7 @@ def stop_job(job_id: int) -> dict:
                 """,
                 (
                     now,
-                    "Stopped by operator",
+                    stop_message,
                     json.dumps(settings),
                     now,
                     _count_obs(conn, job_id),
@@ -863,7 +878,8 @@ def list_observations(
                    m.image_url AS tcg_image_url,
                    m.price AS tcg_price, m.price_label AS tcg_price_label,
                    m.currency AS tcg_currency,
-                   m.confidence AS tcg_confidence, m.query AS tcg_query
+                   m.confidence AS tcg_confidence, m.query AS tcg_query,
+                   m.match_source AS tcg_match_source, m.error_text AS tcg_error
             FROM scrape_observations o
             JOIN products p ON p.id = o.product_id
             LEFT JOIN tcgplayer_matches m ON m.product_id = p.id
@@ -936,18 +952,23 @@ def _match_public(row: sqlite3.Row | None) -> dict:
             "tcg_currency": None,
             "tcg_confidence": None,
             "tcg_query": None,
+            "tcg_match_source": None,
+            "tcg_error": None,
         }
+    keys = row.keys()
     return {
         "tcg_status": row["status"],
         "tcg_url": row["tcg_url"],
         "tcg_name": row["tcg_name"],
         "tcg_set": row["tcg_set"],
-        "tcg_image_url": row["image_url"] if "image_url" in row.keys() else None,
+        "tcg_image_url": row["image_url"] if "image_url" in keys else None,
         "tcg_price": row["price"],
-        "tcg_price_label": row["price_label"] if "price_label" in row.keys() else None,
+        "tcg_price_label": row["price_label"] if "price_label" in keys else None,
         "tcg_currency": row["currency"],
         "tcg_confidence": row["confidence"],
         "tcg_query": row["query"],
+        "tcg_match_source": row["match_source"] if "match_source" in keys else None,
+        "tcg_error": row["error_text"] if "error_text" in keys else None,
     }
 
 
@@ -1002,6 +1023,8 @@ def confirm_tcg_candidate(product_id: int, candidate_id: int) -> dict:
                 price_label = ?,
                 currency = ?,
                 confidence = ?,
+                match_source = 'confirmed',
+                error_text = NULL,
                 matched_at = ?
             WHERE product_id = ?
             """,
@@ -1081,18 +1104,87 @@ def product_compare(product_id: int) -> dict | None:
     }
 
 
-def list_match_products(job_id: int) -> list[dict]:
+def list_match_products(
+    job_id: int,
+    *,
+    q: str | None = None,
+    min_price: float | None = None,
+    max_price: float | None = None,
+    min_rating: float | None = None,
+    min_bought: int | None = None,
+) -> list[dict]:
+    where = ["o.job_id = ?"]
+    args: list = [job_id]
+    if q:
+        like = f"%{_escape_like(q)}%"
+        where.append("(p.title LIKE ? ESCAPE '\\' OR IFNULL(p.asin, '') LIKE ? ESCAPE '\\')")
+        args.extend([like, like])
+    if min_price is not None:
+        where.append("o.price >= ?")
+        args.append(min_price)
+    if max_price is not None:
+        where.append("o.price <= ?")
+        args.append(max_price)
+    if min_rating is not None:
+        where.append("o.rating >= ?")
+        args.append(min_rating)
+    if min_bought is not None:
+        where.append("o.bought_past_month >= ?")
+        args.append(min_bought)
+    clause = " AND ".join(where)
     with _tx() as conn:
         rows = conn.execute(
-            """
-            SELECT p.id, p.title
+            f"""
+            SELECT p.id, p.title, m.status AS tcg_status
             FROM scrape_observations o
             JOIN products p ON p.id = o.product_id
-            WHERE o.job_id = ?
+            LEFT JOIN tcgplayer_matches m ON m.product_id = p.id
+            WHERE {clause}
             GROUP BY p.id
             ORDER BY MIN(o.id)
             """,
-            (job_id,),
+            args,
+        ).fetchall()
+    return [dict(row) for row in rows]
+
+
+def list_catalog_match_products(
+    *,
+    q: str | None = None,
+    has_asin: str | None = None,
+    last_seen_after: str | None = None,
+    last_seen_before: str | None = None,
+) -> list[dict]:
+    where = ["1 = 1"]
+    args: list = []
+    if q:
+        like = f"%{_escape_like(q)}%"
+        where.append(
+            "(p.title LIKE ? ESCAPE '\\' OR IFNULL(p.asin, '') LIKE ? ESCAPE '\\' "
+            "OR IFNULL(p.product_url, '') LIKE ? ESCAPE '\\')"
+        )
+        args.extend([like, like, like])
+    if has_asin == "yes":
+        where.append("p.asin IS NOT NULL")
+    elif has_asin == "no":
+        where.append("p.asin IS NULL")
+    if last_seen_after:
+        where.append("p.last_seen_at >= ?")
+        args.append(last_seen_after)
+    if last_seen_before:
+        where.append("p.last_seen_at < ?")
+        args.append(last_seen_before)
+    clause = " AND ".join(where)
+    with _tx() as conn:
+        rows = conn.execute(
+            f"""
+            SELECT p.id, p.title, m.status AS tcg_status
+            FROM products p
+            LEFT JOIN tcgplayer_matches m ON m.product_id = p.id
+            WHERE {clause}
+            ORDER BY p.last_seen_at DESC, p.id DESC
+            """,
+            args,
         ).fetchall()
     return [dict(row) for row in rows]
 
@@ -1159,6 +1251,8 @@ def upsert_tcg_match(
     confidence: float | None,
     raw: dict | None,
     candidates: list[dict],
+    match_source: str | None = None,
+    error_text: str | None = None,
 ) -> None:
     now = utcnow()
     with _tx() as conn:
@@ -1166,8 +1260,9 @@ def upsert_tcg_match(
             """
             INSERT INTO tcgplayer_matches (
               product_id, job_id, query, status, tcg_url, tcg_name, tcg_set,
-              image_url, price, price_label, currency, confidence, raw_json, matched_at
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+              image_url, price, price_label, currency, confidence, raw_json, matched_at,
+              match_source, error_text
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             ON CONFLICT(product_id) DO UPDATE SET
               job_id = excluded.job_id,
               query = excluded.query,
@@ -1181,7 +1276,9 @@ def upsert_tcg_match(
               currency = excluded.currency,
               confidence = excluded.confidence,
               raw_json = excluded.raw_json,
-              matched_at = excluded.matched_at
+              matched_at = excluded.matched_at,
+              match_source = excluded.match_source,
+              error_text = excluded.error_text
             """,
             (
                 product_id,
@@ -1198,6 +1295,8 @@ def upsert_tcg_match(
                 confidence,
                 json.dumps(raw or {}),
                 now,
+                match_source,
+                error_text,
             ),
         )
         conn.execute("DELETE FROM tcgplayer_candidates WHERE product_id = ?", (product_id,))
@@ -1415,6 +1514,8 @@ def _product_brief(row: sqlite3.Row, observation_count: int) -> dict:
         "tcg_currency": row["tcg_currency"],
         "tcg_confidence": row["tcg_confidence"],
         "tcg_query": row["tcg_query"],
+        "tcg_match_source": row["tcg_match_source"] if "tcg_match_source" in row.keys() else None,
+        "tcg_error": row["tcg_error"] if "tcg_error" in row.keys() else None,
     }
 
 
@@ -1480,7 +1581,9 @@ def list_products(
                    tcg.price_label AS tcg_price_label,
                    tcg.currency AS tcg_currency,
                    tcg.confidence AS tcg_confidence,
-                   tcg.query AS tcg_query
+                   tcg.query AS tcg_query,
+                   tcg.match_source AS tcg_match_source,
+                   tcg.error_text AS tcg_error
             FROM products p
             LEFT JOIN tcgplayer_matches tcg ON tcg.product_id = p.id
             WHERE {clause}

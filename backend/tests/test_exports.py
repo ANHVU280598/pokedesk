@@ -69,6 +69,8 @@ def test_exports_cover_amazon_tcg_and_price_compare_without_inventing_prices(cli
     assert booster["Bought last month text"] == "1K+"
     assert booster["TCGPlayer price label"] == "Market"
     assert booster["TCGPlayer price"] == "139.99"
+    assert booster["TCGPlayer match source"] == "auto"
+    assert booster["TCGPlayer error"] == ""
     assert booster["Product ID"]
     assert booster["Product URL"]
     sleeves = next(row for row in job_csv if row["ASIN"] == "B0PKMN0004")

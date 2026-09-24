@@ -65,10 +65,21 @@ class ProductMerge(BaseModel):
 
 class TcgMatchBody(BaseModel):
     product_ids: list[int] | None = None
+    rematch: bool = False
+    q: str | None = None
+    min_rating: float | None = None
+    min_price: float | None = None
+    max_price: float | None = None
+    min_bought: int | None = None
 
 
 class ProductTcgMatch(BaseModel):
-    product_ids: list[int] = Field(min_length=1, max_length=500)
+    product_ids: list[int] | None = None
+    rematch: bool = False
+    q: str | None = None
+    has_asin: str | None = None
+    last_seen_after: str | None = None
+    last_seen_before: str | None = None
 
 
 class TcgConfirm(BaseModel):

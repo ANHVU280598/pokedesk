@@ -298,7 +298,12 @@ def _continue_url(job: dict, url: str, pages: int) -> str | None:
     return None
 
 
-MATCH_LIMIT = 500
+def rows_to_match(products: list[dict], *, rematch: bool) -> tuple[list[dict], int]:
+    """Skip products that already have a match unless this pass is a re-match."""
+    if rematch:
+        return list(products), 0
+    pending = [row for row in products if row.get("tcg_status") != "matched"]
+    return pending, len(products) - len(pending)
 
 
 def compose_tcg_match_job(
@@ -307,12 +312,15 @@ def compose_tcg_match_job(
     defaults: dict,
     fixture: bool,
     source_job_id: int | None,
+    skipped_matched: int = 0,
 ) -> dict:
     """Queue a TCGPlayer lookup for Amazon products already stored."""
     if not products:
+        if skipped_matched:
+            raise ValueError(
+                "Every product in this list already has a TCGPlayer match. Use Re-match all to look them up again."
+            )
         raise ValueError("No products to match")
-    if len(products) > MATCH_LIMIT:
-        raise ValueError(f"Match up to {MATCH_LIMIT} products at a time")
     delay = 0.0 if fixture else float(defaults.get("delay_sec") or MIN_LIVE_DELAY)
     if not fixture and delay < MIN_LIVE_DELAY:
         delay = MIN_LIVE_DELAY
@@ -336,6 +344,7 @@ def compose_tcg_match_job(
             "fixture": fixture,
             "source_job_id": source_job_id,
             "product_ids": ids,
+            "skipped_matched": skipped_matched,
             "max_pages": len(ids),
             "delay_ms": int(round(delay * 1000)),
             "headless": bool(defaults.get("headless", True)),

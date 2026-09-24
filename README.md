@@ -180,16 +180,16 @@ MVP choices baked in:
 - `scrape_jobs.parent_job_id` points at the blocked job a follow-up was created from. Deleting the parent clears the link.
 - `scrape_observations.source` is `results` or `related`. A related card does not replace that job’s results snapshot for the same product.
 - `bought_past_month` and `bought_past_month_text` sit on each observation, like price. They stay empty when the card does not show a “bought in past month” count. Results can sort by that number.
-- `tcgplayer_matches` stores one current TCGPlayer lookup per product (URL, name, set, image, price, the raw price label such as Market, confidence, and `matched`, `needs_confirm`, or `unmatched`). It survives later Amazon jobs. Clear or re-run replaces it.
+- `tcgplayer_matches` stores one current TCGPlayer lookup per product (URL, name, set, image, price, the raw price label such as Market, confidence, and `matched`, `needs_confirm`, `unmatched`, or `error`). `match_source` is `auto` or `confirmed`. `error_text` holds a failed lookup. It survives later Amazon jobs. Clear or re-run replaces it.
 - `tcgplayer_candidates` stores each plausible listing from that lookup (name, set, URL, image, labeled prices). Confirm copies the chosen row onto the match.
 
 ## TCGPlayer match
 
-After an Amazon job has products, click **Match on TCGPlayer** on **Results** to start a match for that job’s list. A finished Amazon scrape leaves matching idle until that click. The same button is on Live job. A product row can also be matched from its detail. The click opens **Live job** for the match pass: progress, pause, and stop apply between products, the same way they do between Amazon pages. When the pass finishes, Results shows each product’s listings.
+After an Amazon job has products, click **Match on TCGPlayer** on **Results**. That one click queues every card in the job that fits the current search and rating, not a single row. The same button on **Database → Products** queues every product in the filtered catalog, not only the page on screen. Cards that already have a TCGPlayer match are skipped. **Re-match all** looks those up again. A product row can still be matched on its own from its detail. The list stays on screen and shows **Matching 3 / 12**, **Cancel**, and the row status as each lookup finishes: auto match, needs your pick, no match, or the error text. A failed lookup is stored on that row and logged; the rest of the list continues. A TCGPlayer block stops further requests and the banner shows why.
 
 The worker strips “Pokemon”, “TCG”, and pack-count noise from the title, then scores TCGPlayer hits and keeps the price label that the page shows (Market, Low, Mid, or whatever is printed) plus the numeric amount when it parses. Exactly one strong hit is stored as matched, with that price, and the row offers **Compare**. More than one plausible listing is `needs_confirm`: nothing is chosen until **Choose listing** picks a radio option. Confirming that listing marks the product matched and opens **Compare prices**, Amazon on one side and the confirmed TCGPlayer card on the other, with the price gap. A matched row can be changed later from **Change**. An empty search, or a clearly unrelated hit, stays unmatched. No listing is invented.
 
-A dry-run Amazon job matches against saved search HTML, so tests and fixture scrapes do not open TCGPlayer. Products that have only ever been seen in fixture jobs stay on that path. A product from a live Amazon scrape uses Playwright against `tcgplayer.com` Pokemon search. One pass matches up to 500 products. Soft-blocks keep the matches already stored.
+A dry-run Amazon job matches against saved search HTML, so tests and fixture scrapes do not open TCGPlayer. Products that have only ever been seen in fixture jobs stay on that path. A product from a live Amazon scrape uses Playwright against `tcgplayer.com` Pokemon search, one product at a time, with the same delay as Amazon page turns. A block or a per-row error keeps the matches already stored.
 
 ## Export
 
@@ -220,9 +220,9 @@ The date is UTC. A job-scoped file includes `job-<id>` in the name. Columns foll
 | POST | `/api/jobs/{id}/follow-ups` | Queue selected follow-ups (`suggestion_ids`) |
 | DELETE | `/api/jobs/{id}` | Delete a finished job, its observations, and its snapshots |
 | GET | `/api/jobs/{id}/observations` | Cards for a job (`q`, `min_price`, `max_price`, `min_rating`, `min_bought`, `sort` including `bought`). Each card includes its current TCGPlayer match when one is stored |
-| POST | `/api/jobs/{id}/tcg-match` | Queue a TCGPlayer match for that job’s products, or a `product_ids` subset |
+| POST | `/api/jobs/{id}/tcg-match` | Queue a TCGPlayer match for every product in that job (optional `q`, `min_rating`, `min_price`, `max_price`, `min_bought`, or a `product_ids` subset). Skips rows already matched unless `rematch` is true. One id always re-matches that row |
 | DELETE | `/api/jobs/{id}/tcg-match` | Clear TCGPlayer matches for products in that job |
-| POST | `/api/products/tcg-match` | Queue a match for `product_ids` |
+| POST | `/api/products/tcg-match` | Queue a match for the filtered catalog (`q`, `has_asin`, `last_seen_after`, `last_seen_before`) or a `product_ids` subset. Same skip / `rematch` rules |
 | DELETE | `/api/products/{id}/tcg-match` | Clear one product’s TCGPlayer match |
 | POST | `/api/products/{id}/tcg-confirm` | Confirm one stored candidate (`candidate_id`) as the match |
 | GET | `/api/products/{id}/compare` | Amazon price beside the confirmed TCGPlayer price. 409 until the listing is confirmed |

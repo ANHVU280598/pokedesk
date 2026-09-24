@@ -41,6 +41,8 @@ AMAZON_JOB_COLUMNS = [
     ("tcg_price", "TCGPlayer price"),
     ("tcg_currency", "TCGPlayer currency"),
     ("tcg_url", "TCGPlayer URL"),
+    ("tcg_match_source", "TCGPlayer match source"),
+    ("tcg_error", "TCGPlayer error"),
 ]
 
 AMAZON_CATALOG_COLUMNS = [
@@ -67,6 +69,8 @@ AMAZON_CATALOG_COLUMNS = [
     ("tcg_price", "TCGPlayer price"),
     ("tcg_currency", "TCGPlayer currency"),
     ("tcg_url", "TCGPlayer URL"),
+    ("tcg_match_source", "TCGPlayer match source"),
+    ("tcg_error", "TCGPlayer error"),
 ]
 
 TCG_COLUMNS = [
@@ -87,6 +91,8 @@ TCG_COLUMNS = [
     ("currency", "Currency"),
     ("other_prices", "Other prices"),
     ("confidence", "Confidence"),
+    ("match_source", "Match source"),
+    ("error", "Error"),
 ]
 
 COMPARE_COLUMNS = [
@@ -109,6 +115,7 @@ COMPARE_COLUMNS = [
     ("tcg_image_url", "TCGPlayer image URL"),
     ("difference", "Difference"),
     ("lower", "Lower"),
+    ("match_source", "Match source"),
 ]
 
 DATASETS = {
@@ -213,6 +220,8 @@ def amazon_rows(
                     "tcg_price": item.get("tcg_price"),
                     "tcg_currency": item.get("tcg_currency"),
                     "tcg_url": item.get("tcg_url"),
+                    "tcg_match_source": item.get("tcg_match_source"),
+                    "tcg_error": item.get("tcg_error"),
                 }
             )
         return AMAZON_JOB_COLUMNS, rows, "Amazon products"
@@ -261,7 +270,7 @@ def tcg_rows(
                    m.tcg_name AS confirmed_name, m.tcg_set AS confirmed_set,
                    m.image_url AS confirmed_image, m.price AS confirmed_price,
                    m.price_label AS confirmed_price_label, m.currency AS confirmed_currency,
-                   m.confidence AS confirmed_confidence,
+                   m.confidence AS confirmed_confidence, m.match_source, m.error_text,
                    c.id AS candidate_id, c.name AS candidate_name, c.set_name AS candidate_set,
                    c.url AS candidate_url, c.image_url AS candidate_image,
                    c.price AS candidate_price, c.price_label AS candidate_price_label,
@@ -316,6 +325,8 @@ def tcg_rows(
                     "currency": candidate["candidate_currency"],
                     "other_prices": _other_prices(candidate["candidate_prices"]),
                     "confidence": candidate["candidate_confidence"],
+                    "match_source": base["match_source"],
+                    "error": base["error_text"],
                 }
             )
         if confirmed_url and not saw_confirmed:
@@ -360,6 +371,7 @@ def price_compare_rows(
                    obs.bought_past_month, obs.bought_past_month_text,
                    m.tcg_name, m.tcg_set, m.price_label AS tcg_price_label, m.price AS tcg_price,
                    m.currency AS tcg_currency, m.tcg_url, m.image_url AS tcg_image_url,
+                   m.match_source,
                    (
                      SELECT c.prices_json
                      FROM tcgplayer_candidates c
@@ -416,6 +428,7 @@ def price_compare_rows(
                 "tcg_image_url": row["tcg_image_url"],
                 "difference": difference,
                 "lower": lower,
+                "match_source": row["match_source"],
             }
         )
     return rows
@@ -478,7 +491,8 @@ def _catalog_amazon_rows(
                    obs.review_count, obs.bought_past_month, obs.bought_past_month_text,
                    tcg.status AS tcg_status, tcg.tcg_name, tcg.tcg_set,
                    tcg.price_label AS tcg_price_label, tcg.price AS tcg_price,
-                   tcg.currency AS tcg_currency, tcg.tcg_url
+                   tcg.currency AS tcg_currency, tcg.tcg_url,
+                   tcg.match_source AS tcg_match_source, tcg.error_text AS tcg_error
             FROM products p
             LEFT JOIN tcgplayer_matches tcg ON tcg.product_id = p.id
             LEFT JOIN scrape_observations obs ON obs.id = (
@@ -598,6 +612,8 @@ def _tcg_match_row(base, amazon_url: str | None) -> dict:
         "currency": base["confirmed_currency"],
         "other_prices": None,
         "confidence": base["confirmed_confidence"],
+        "match_source": base["match_source"],
+        "error": base["error_text"],
     }
 
 

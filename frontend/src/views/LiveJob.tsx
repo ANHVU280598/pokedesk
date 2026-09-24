@@ -235,7 +235,7 @@ export function LiveJob({
         </p>
       ) : null}
 
-      {tcg && job.error_message?.startsWith("TCGPlayer:") ? (
+      {tcg && (job.error_message?.startsWith("Matching") || job.error_message?.startsWith("TCGPlayer")) ? (
         <p className="mb-5 rounded-lg border border-sky-200 bg-sky-50 px-4 py-3 text-sm text-sky-950">
           {job.error_message}
         </p>
@@ -254,7 +254,9 @@ export function LiveJob({
           </span>
           <span className="text-muted-foreground">
             {tcg
-              ? `Product ${job.pages_visited} of ${maxPages}`
+              ? job.error_message?.startsWith("Matching")
+                ? job.error_message
+                : `Product ${job.pages_visited} of ${maxPages}`
               : `Page ${job.pages_visited} of ${maxPages} · ${job.items_scraped} cards`}
           </span>
         </div>
@@ -282,7 +284,7 @@ export function LiveJob({
           ) : null}
           {active ? (
             <Button size="sm" variant="outline" disabled={busy != null} onClick={() => act("stop", () => stopJob(job.id))}>
-              {busy === "stop" ? "Stopping…" : "Stop"}
+              {busy === "stop" ? (tcg ? "Cancelling…" : "Stopping…") : tcg ? "Cancel" : "Stop"}
             </Button>
           ) : null}
           <Button size="sm" variant="outline" onClick={() => onOpenResults(resultsId)}>

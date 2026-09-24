@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react"
+import { useCallback, useEffect, useState } from "react"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
@@ -11,6 +11,7 @@ import {
 } from "@/components/ui/sheet"
 import { ConfirmTcg } from "../components/ConfirmTcg"
 import { ExportGroup } from "../components/ExportMenu"
+import { MatchBanner } from "../components/MatchBanner"
 import { TcgMatchCell } from "../components/TcgMatch"
 import { CompareList, TcgList } from "./CatalogLists"
 import {
@@ -28,17 +29,15 @@ import {
   updateProduct,
 } from "../api"
 import { formatBought, formatMoney, formatWhen, sourceLabel } from "../format"
-import type { CatalogProduct, DuplicateHint, Job, MatchHandoff, Product } from "../types"
+import type { CatalogProduct, DuplicateHint, Job, Product } from "../types"
 
 const PAGE = 25
 
 type Tab = "products" | "tcg" | "compare" | "jobs" | "duplicates"
 
 export function Database({
-  onStartMatch,
   onCompare,
 }: {
-  onStartMatch: (matchJobId: number, returnTo: MatchHandoff) => void
   onCompare: (productId: number) => void
 }) {
   const [tab, setTab] = useState<Tab>("products")
@@ -73,7 +72,7 @@ export function Database({
         ))}
       </div>
       {tab === "products" ? (
-        <Products onStartMatch={onStartMatch} onCompare={onCompare} />
+        <Products onCompare={onCompare} />
       ) : tab === "tcg" ? (
         <TcgList />
       ) : tab === "compare" ? (
@@ -88,10 +87,8 @@ export function Database({
 }
 
 function Products({
-  onStartMatch,
   onCompare,
 }: {
-  onStartMatch: (matchJobId: number, returnTo: MatchHandoff) => void
   onCompare: (productId: number) => void
 }) {
   const [query, setQuery] = useState("")
@@ -107,6 +104,8 @@ function Products({
   const [matching, setMatching] = useState(false)
   const [matchNote, setMatchNote] = useState<string | null>(null)
   const [confirmId, setConfirmId] = useState<number | null>(null)
+  const [matchJobId, setMatchJobId] = useState<number | null>(null)
+  const [queuing, setQueuing] = useState(false)
 
   useEffect(() => {
     const timer = window.setTimeout(() => setDebounced(query.trim()), 200)
@@ -166,21 +165,44 @@ function Products({
   const page = Math.floor(offset / PAGE) + 1
   const pages = Math.max(1, Math.ceil(total / PAGE))
 
-  async function matchVisible() {
-    if (!items?.length) return
+  async function runMatch(rematch: boolean, productIds?: number[]) {
+    if (matchJobId != null) return
+    setQueuing(true)
     setMatching(true)
     setError(null)
-    setMatchNote("Looking up TCGPlayer…")
+    setMatchNote(null)
     try {
-      const queued = await matchProductsOnTcg(items.map((item) => item.id))
-      onStartMatch(queued.id, { view: "database" })
+      const queued = await matchProductsOnTcg({
+        rematch: rematch || productIds?.length === 1,
+        productIds,
+        q: productIds ? undefined : debounced,
+        hasAsin: productIds ? undefined : hasAsin,
+        lastSeenAfter: productIds ? undefined : seenAfter,
+        lastSeenBefore: productIds ? undefined : seenBefore,
+      })
+      setMatchJobId(queued.id)
     } catch (err) {
-      setMatchNote(null)
       setError(err instanceof ApiError ? err.message : "TCGPlayer match failed.")
     } finally {
+      setQueuing(false)
       setMatching(false)
     }
   }
+
+  const refreshDuringMatch = useCallback(() => {
+    reload()
+  }, [debounced, hasAsin, seenAfter, seenBefore, offset])
+
+  const finishMatch = useCallback((job: Job) => {
+    setMatchJobId(null)
+    if (job.status === "failed") {
+      setError(job.error_message || "TCGPlayer match failed.")
+      setMatchNote(null)
+    } else {
+      setMatchNote(job.error_message || "Match finished.")
+    }
+    reload()
+  }, [debounced, hasAsin, seenAfter, seenBefore, offset])
 
   return (
     <div>
@@ -244,10 +266,24 @@ function Products({
           }}
         />
       </div>
+      {queuing ? <p className="mb-3 text-sm text-sky-950">Queuing the TCGPlayer match for this list…</p> : null}
+      <MatchBanner jobId={matchJobId} onTick={refreshDuringMatch} onFinished={finishMatch} />
       <div className="mb-3 flex flex-wrap items-center gap-2">
-        <Button type="button" size="sm" disabled={matching || !items?.length} onClick={() => void matchVisible()}>
-          {matching ? "Matching…" : "Match visible on TCGPlayer"}
+        <Button type="button" size="sm" disabled={matching || matchJobId != null || total === 0} onClick={() => void runMatch(false)}>
+          {queuing ? "Queuing…" : "Match on TCGPlayer"}
         </Button>
+        <Button
+          type="button"
+          size="sm"
+          variant="outline"
+          disabled={matching || matchJobId != null || total === 0}
+          onClick={() => void runMatch(true)}
+        >
+          Re-match all
+        </Button>
+        <p className="text-xs text-muted-foreground">
+          Matches every product in this filtered catalog, not only this page. Products that already have a match are skipped unless you choose Re-match all.
+        </p>
         {matchNote ? <p className="text-sm text-muted-foreground">{matchNote}</p> : null}
       </div>
       {items?.some((item) => item.tcg_status === "needs_confirm") ? (
@@ -327,7 +363,7 @@ function Products({
         productId={selectedId}
         onClose={() => setSelectedId(null)}
         onChanged={reload}
-        onStartMatch={onStartMatch}
+        onMatchOne={(productId) => void runMatch(true, [productId])}
         onConfirm={setConfirmId}
         onCompare={onCompare}
       />
@@ -349,14 +385,14 @@ function ProductEditor({
   productId,
   onClose,
   onChanged,
-  onStartMatch,
+  onMatchOne,
   onConfirm,
   onCompare,
 }: {
   productId: number | null
   onClose: () => void
   onChanged: () => void
-  onStartMatch: (matchJobId: number, returnTo: MatchHandoff) => void
+  onMatchOne: (productId: number) => void
   onConfirm: (productId: number) => void
   onCompare: (productId: number) => void
 }) {
@@ -437,18 +473,10 @@ function ProductEditor({
     }
   }
 
-  async function rematch() {
+  function rematch() {
     if (productId == null) return
-    setPending(true)
     setError(null)
-    try {
-      const queued = await matchProductsOnTcg([productId])
-      onStartMatch(queued.id, { view: "database" })
-    } catch (err) {
-      setError(err instanceof ApiError ? err.message : "Could not re-run the match.")
-    } finally {
-      setPending(false)
-    }
+    onMatchOne(productId)
   }
 
   async function clearMatch() {

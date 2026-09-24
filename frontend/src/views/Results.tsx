@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react"
+import { useCallback, useEffect, useState } from "react"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
@@ -12,6 +12,7 @@ import {
 } from "@/components/ui/sheet"
 import { ConfirmTcg } from "../components/ConfirmTcg"
 import { ExportGroup } from "../components/ExportMenu"
+import { MatchBanner } from "../components/MatchBanner"
 import { TcgMatchCell } from "../components/TcgMatch"
 import {
   ApiError,
@@ -23,16 +24,14 @@ import {
   matchJobOnTcg,
 } from "../api"
 import { formatBought, formatCount, formatMoney, formatRating, formatWhen, sourceLabel } from "../format"
-import type { Job, MatchHandoff, Observation, Product } from "../types"
+import type { Job, Observation, Product } from "../types"
 
 export function Results({
   initialJobId,
-  onStartMatch,
   onJobChange,
   onCompare,
 }: {
   initialJobId: number | null
-  onStartMatch: (matchJobId: number, returnTo: MatchHandoff) => void
   onJobChange: (jobId: number) => void
   onCompare: (productId: number) => void
 }) {
@@ -52,6 +51,8 @@ export function Results({
   const [matchNote, setMatchNote] = useState<string | null>(null)
   const [reloadKey, setReloadKey] = useState(0)
   const [confirmId, setConfirmId] = useState<number | null>(null)
+  const [matchJobId, setMatchJobId] = useState<number | null>(null)
+  const [queuing, setQueuing] = useState(false)
 
   useEffect(() => {
     setJobId(initialJobId)
@@ -118,19 +119,42 @@ export function Results({
     }
   }, [jobId, debounced, minRating, sort, reloadKey])
 
-  async function runMatch() {
-    if (jobId == null) return
+  async function runMatch(rematch: boolean, productIds?: number[]) {
+    if (jobId == null || matchJobId != null) return
+    setQueuing(true)
     setMatching(true)
     setError(null)
     setMatchNote(null)
     try {
-      const queued = await matchJobOnTcg(jobId)
-      onStartMatch(queued.id, { view: "results", jobId })
+      const queued = await matchJobOnTcg(jobId, {
+        rematch: rematch || Boolean(productIds?.length === 1),
+        productIds,
+        q: productIds ? undefined : debounced,
+        minRating: productIds ? undefined : minRating,
+      })
+      setMatchJobId(queued.id)
     } catch (err) {
-      setMatching(false)
       setError(err instanceof ApiError ? err.message : "TCGPlayer match failed.")
+    } finally {
+      setQueuing(false)
+      setMatching(false)
     }
   }
+
+  const refreshDuringMatch = useCallback(() => {
+    setReloadKey((value) => value + 1)
+  }, [])
+
+  const finishMatch = useCallback((job: Job) => {
+    setMatchJobId(null)
+    if (job.status === "failed") {
+      setError(job.error_message || "TCGPlayer match failed.")
+      setMatchNote(null)
+    } else {
+      setMatchNote(job.error_message || "Match finished.")
+    }
+    setReloadKey((value) => value + 1)
+  }, [])
 
   async function clearMatches() {
     if (jobId == null) return
@@ -269,9 +293,28 @@ export function Results({
         />
       </div>
 
+      {queuing ? (
+        <p className="mb-3 text-sm text-sky-950">Queuing the TCGPlayer match for this list…</p>
+      ) : null}
+      <MatchBanner jobId={matchJobId} onTick={refreshDuringMatch} onFinished={finishMatch} />
+
       <div className="mb-4 flex flex-wrap items-center gap-2">
-        <Button type="button" size="sm" disabled={jobId == null || matching || items.length === 0} onClick={() => void runMatch()}>
-          {matching ? "Matching…" : "Match on TCGPlayer"}
+        <Button
+          type="button"
+          size="sm"
+          disabled={jobId == null || matching || matchJobId != null || items.length === 0}
+          onClick={() => void runMatch(false)}
+        >
+          {queuing ? "Queuing…" : "Match on TCGPlayer"}
+        </Button>
+        <Button
+          type="button"
+          size="sm"
+          variant="outline"
+          disabled={jobId == null || matching || matchJobId != null || items.length === 0}
+          onClick={() => void runMatch(true)}
+        >
+          Re-match all
         </Button>
         <Button
           type="button"
@@ -283,7 +326,7 @@ export function Results({
           Clear matches
         </Button>
         <p className="text-xs text-muted-foreground">
-          Click to look up this job on TCGPlayer. Matching stays idle until you do.
+          Matches every card in this job that fits the search and rating. Cards that already have a match are skipped unless you choose Re-match all.
         </p>
         {matchNote ? <p className="text-sm text-muted-foreground">{matchNote}</p> : null}
       </div>
@@ -408,7 +451,7 @@ export function Results({
         item={detail}
         onClose={() => setDetail(null)}
         onChanged={() => setReloadKey((value) => value + 1)}
-        onStartMatch={onStartMatch}
+        onMatchOne={(productId) => void runMatch(true, [productId])}
         onConfirm={setConfirmId}
         onCompare={onCompare}
       />
@@ -454,14 +497,14 @@ function DetailDrawer({
   item,
   onClose,
   onChanged,
-  onStartMatch,
+  onMatchOne,
   onConfirm,
   onCompare,
 }: {
   item: Observation | null
   onClose: () => void
   onChanged: () => void
-  onStartMatch: (matchJobId: number, returnTo: MatchHandoff) => void
+  onMatchOne: (productId: number) => void
   onConfirm: (productId: number) => void
   onCompare: (productId: number) => void
 }) {
@@ -503,18 +546,10 @@ function DetailDrawer({
     window.setTimeout(() => setCopyLabel("Copy ASIN"), 1200)
   }
 
-  async function rematchOne() {
+  function rematchOne() {
     if (!item) return
-    setMatchBusy(true)
     setMatchError(null)
-    try {
-      const queued = await matchJobOnTcg(item.job_id, [item.product_id])
-      onStartMatch(queued.id, { view: "results", jobId: item.job_id })
-    } catch (err) {
-      setMatchError(err instanceof ApiError ? err.message : "Could not re-run the match.")
-    } finally {
-      setMatchBusy(false)
-    }
+    onMatchOne(item.product_id)
   }
 
   async function clearOne() {

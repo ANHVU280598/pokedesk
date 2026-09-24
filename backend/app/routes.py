@@ -21,6 +21,7 @@ from app.service import (
     clean_settings,
     compose_new_job,
     compose_tcg_match_job,
+    rows_to_match,
     recheck_patch,
     retry_wait_seconds,
 )
@@ -198,8 +199,17 @@ async def start_job_tcg_match(
         raise HTTPException(404, "Job not found")
     if (job.get("settings") or {}).get("mode") == "tcgplayer":
         raise HTTPException(400, "Match an Amazon scrape, not a TCGPlayer pass")
-    rows = db.list_match_products(job_id)
-    wanted = None if body is None or body.product_ids is None else list(body.product_ids)
+    payload = body or TcgMatchBody()
+    rows = db.list_match_products(
+        job_id,
+        q=payload.q.strip() if payload.q else None,
+        min_price=payload.min_price,
+        max_price=payload.max_price,
+        min_rating=payload.min_rating,
+        min_bought=payload.min_bought,
+    )
+    wanted = None if payload.product_ids is None else list(payload.product_ids)
+    single = wanted is not None and len(wanted) == 1
     if wanted is not None:
         if not wanted:
             raise HTTPException(400, "Pick at least one product")
@@ -209,17 +219,23 @@ async def start_job_tcg_match(
         order = {int(pid): index for index, pid in enumerate(wanted)}
         rows = [row for row in rows if int(row["id"]) in order]
         rows.sort(key=lambda row: order[int(row["id"])])
+    kept, skipped = rows_to_match(rows, rematch=payload.rematch or single)
     fixture = (job.get("settings") or {}).get("mode") == "fixture"
     try:
         spec = compose_tcg_match_job(
-            products=rows,
+            products=kept,
             defaults=settings_store.get(),
             fixture=fixture,
             source_job_id=job_id,
+            skipped_matched=skipped,
         )
     except ValueError as exc:
         raise HTTPException(400, str(exc)) from exc
     created = db.create_job(**spec)
+    print(
+        f"TCGPlayer match queued job={created['id']} products={len(kept)} skipped={skipped} source={job_id}",
+        flush=True,
+    )
     request.app.state.runner.notify()
     return _public_job(created)
 
@@ -275,19 +291,48 @@ async def merge_products(body: ProductMerge) -> dict:
 
 @router.post("/products/tcg-match", status_code=201)
 async def start_product_tcg_match(body: ProductTcgMatch, request: Request) -> dict:
-    rows = db.list_products_by_ids(body.product_ids)
-    if len(rows) != len(set(body.product_ids)):
-        raise HTTPException(400, "Unknown product")
+    if body.has_asin not in {None, "", "yes", "no", "any"}:
+        raise HTTPException(400, "has_asin must be yes, no, or any")
+    try:
+        after, before = _seen_bounds(body.last_seen_after, body.last_seen_before)
+    except ValueError as exc:
+        raise HTTPException(400, str(exc)) from exc
+    single = body.product_ids is not None and len(body.product_ids) == 1
+    if body.product_ids is not None:
+        if not body.product_ids:
+            raise HTTPException(400, "Pick at least one product")
+        rows = db.list_products_by_ids(body.product_ids)
+        if len(rows) != len(set(body.product_ids)):
+            raise HTTPException(400, "Unknown product")
+        status_rows = db.list_catalog_match_products()
+        status_by_id = {int(row["id"]): row.get("tcg_status") for row in status_rows}
+        for row in rows:
+            row["tcg_status"] = status_by_id.get(int(row["id"]))
+        ids_for_fixture = [int(row["id"]) for row in rows]
+    else:
+        rows = db.list_catalog_match_products(
+            q=body.q.strip() if body.q else None,
+            has_asin=None if body.has_asin in {None, "", "any"} else body.has_asin,
+            last_seen_after=after,
+            last_seen_before=before,
+        )
+        ids_for_fixture = [int(row["id"]) for row in rows]
+    kept, skipped = rows_to_match(rows, rematch=body.rematch or single)
     try:
         spec = compose_tcg_match_job(
-            products=rows,
+            products=kept,
             defaults=settings_store.get(),
-            fixture=db.products_are_fixture_only(body.product_ids),
+            fixture=db.products_are_fixture_only(ids_for_fixture) if ids_for_fixture else False,
             source_job_id=None,
+            skipped_matched=skipped,
         )
     except ValueError as exc:
         raise HTTPException(400, str(exc)) from exc
     created = db.create_job(**spec)
+    print(
+        f"TCGPlayer match queued job={created['id']} products={len(kept)} skipped={skipped} catalog=1",
+        flush=True,
+    )
     request.app.state.runner.notify()
     return _public_job(created)
 
