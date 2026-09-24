@@ -297,9 +297,10 @@ function DetailDrawer({
   onClose: () => void
 }) {
   const [product, setProduct] = useState<Product | null>(null)
-  const [copied, setCopied] = useState(false)
+  const [copyLabel, setCopyLabel] = useState("Copy ASIN")
 
   useEffect(() => {
+    setCopyLabel("Copy ASIN")
     if (!item) {
       setProduct(null)
       return
@@ -322,9 +323,13 @@ function DetailDrawer({
 
   async function copyAsin() {
     if (!item?.asin) return
-    await navigator.clipboard.writeText(item.asin)
-    setCopied(true)
-    window.setTimeout(() => setCopied(false), 1200)
+    try {
+      await navigator.clipboard.writeText(item.asin)
+      setCopyLabel("Copied")
+    } catch {
+      setCopyLabel("Copy failed")
+    }
+    window.setTimeout(() => setCopyLabel("Copy ASIN"), 1200)
   }
 
   return (
@@ -396,7 +401,7 @@ function DetailDrawer({
                   </Button>
                 ) : null}
                 <Button variant="outline" disabled={!item.asin} onClick={copyAsin}>
-                  {copied ? "Copied" : "Copy ASIN"}
+                  {copyLabel}
                 </Button>
               </div>
           </div>

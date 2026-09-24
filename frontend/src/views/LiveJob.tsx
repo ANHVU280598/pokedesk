@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from "react"
 import { Button } from "@/components/ui/button"
-import { ApiError, getJob, listObservations, pauseJob, resumeJob, retryJob, stopJob } from "../api"
+import { ApiError, getJob, listJobs, listObservations, pauseJob, resumeJob, retryJob, stopJob } from "../api"
 import { StatusChip } from "../components/StatusChip"
 import { formatMoney, paginationLabel } from "../format"
 import type { Job, Observation } from "../types"
@@ -11,10 +11,12 @@ export function LiveJob({
   jobId,
   onOpenResults,
   onJob,
+  onAdopt,
 }: {
   jobId: number | null
   onOpenResults: (jobId: number) => void
   onJob: (job: Job) => void
+  onAdopt: (jobId: number) => void
 }) {
   const [job, setJob] = useState<Job | null>(null)
   const [recent, setRecent] = useState<Observation[]>([])
@@ -22,6 +24,24 @@ export function LiveJob({
   const [busy, setBusy] = useState<string | null>(null)
   const onJobRef = useRef(onJob)
   onJobRef.current = onJob
+  const onAdoptRef = useRef(onAdopt)
+  onAdoptRef.current = onAdopt
+
+  useEffect(() => {
+    if (jobId != null) return
+    let cancel = false
+    listJobs()
+      .then((jobs) => {
+        const active = jobs.find((job) => ACTIVE.has(job.status))
+        if (!cancel && active) onAdoptRef.current(active.id)
+      })
+      .catch(() => {
+        /* the main poll surfaces API errors */
+      })
+    return () => {
+      cancel = true
+    }
+  }, [jobId])
 
   useEffect(() => {
     if (jobId == null) return

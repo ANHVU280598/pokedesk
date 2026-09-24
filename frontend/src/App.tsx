@@ -89,7 +89,12 @@ export default function App() {
         ) : view === "new" ? (
           <NewScrape onStarted={started} />
         ) : view === "live" ? (
-          <LiveJob jobId={activeJobId} onOpenResults={openResults} onJob={onLiveJob} />
+          <LiveJob
+            jobId={activeJobId}
+            onOpenResults={openResults}
+            onJob={onLiveJob}
+            onAdopt={started}
+          />
         ) : view === "results" ? (
           <Results initialJobId={resultsJobId} />
         ) : view === "history" ? (

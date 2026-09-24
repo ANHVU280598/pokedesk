@@ -117,7 +117,7 @@ export function NewScrape({ onStarted }: { onStarted: (jobId: number) => void })
         search_query: "Pokemon cards",
         search_terms: "pokemon cards|fixture",
         max_pages: 5,
-        delay_sec: 0.8,
+        delay_sec: 3,
       })
       onStarted(job.id)
     } catch (err) {
