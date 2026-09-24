@@ -10,6 +10,7 @@ import {
   SheetHeader,
   SheetTitle,
 } from "@/components/ui/sheet"
+import { ConfirmTcg } from "../components/ConfirmTcg"
 import { TcgMatchCell } from "../components/TcgMatch"
 import {
   ApiError,
@@ -26,9 +27,13 @@ import type { Job, MatchHandoff, Observation, Product } from "../types"
 export function Results({
   initialJobId,
   onStartMatch,
+  onJobChange,
+  onCompare,
 }: {
   initialJobId: number | null
   onStartMatch: (matchJobId: number, returnTo: MatchHandoff) => void
+  onJobChange: (jobId: number) => void
+  onCompare: (productId: number) => void
 }) {
   const [jobs, setJobs] = useState<Job[]>([])
   const [jobId, setJobId] = useState<number | null>(initialJobId)
@@ -45,10 +50,15 @@ export function Results({
   const [matching, setMatching] = useState(false)
   const [matchNote, setMatchNote] = useState<string | null>(null)
   const [reloadKey, setReloadKey] = useState(0)
+  const [confirmId, setConfirmId] = useState<number | null>(null)
 
   useEffect(() => {
     setJobId(initialJobId)
   }, [initialJobId])
+
+  useEffect(() => {
+    if (jobId != null) onJobChange(jobId)
+  }, [jobId, onJobChange])
 
   useEffect(() => {
     const timer = window.setTimeout(() => setDebounced(query.trim()), 200)
@@ -252,6 +262,11 @@ export function Results({
         </p>
         {matchNote ? <p className="text-sm text-muted-foreground">{matchNote}</p> : null}
       </div>
+      {items.some((item) => item.tcg_status === "needs_confirm") ? (
+        <p className="mb-3 rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-950">
+          Some cards have more than one plausible TCGPlayer listing. Choose a listing before that card counts as matched.
+        </p>
+      ) : null}
 
       {error ? (
         <p className="mb-4 rounded-md border border-rose-200 bg-rose-50 px-3 py-2 text-sm text-rose-900">{error}</p>
@@ -319,7 +334,12 @@ export function Results({
                   <td className="px-3 py-2">{formatCount(item.review_count)}</td>
                   <td className="px-3 py-2">{formatBought(item.bought_past_month, item.bought_past_month_text)}</td>
                   <td className="px-3 py-2">
-                    <TcgMatchCell match={item} />
+                    <TcgMatchCell
+                      match={item}
+                      productId={item.product_id}
+                      onConfirm={setConfirmId}
+                      onCompare={onCompare}
+                    />
                   </td>
                   <td className="px-3 py-2">{item.page_number ?? "—"}</td>
                 </tr>
@@ -347,7 +367,12 @@ export function Results({
                 <p className="text-xs text-muted-foreground">
                   Bought last month {formatBought(item.bought_past_month, item.bought_past_month_text)}
                 </p>
-                <TcgMatchCell match={item} />
+                <TcgMatchCell
+                  match={item}
+                  productId={item.product_id}
+                  onConfirm={setConfirmId}
+                  onCompare={onCompare}
+                />
               </div>
             </button>
           ))}
@@ -359,6 +384,18 @@ export function Results({
         onClose={() => setDetail(null)}
         onChanged={() => setReloadKey((value) => value + 1)}
         onStartMatch={onStartMatch}
+        onConfirm={setConfirmId}
+        onCompare={onCompare}
+      />
+      <ConfirmTcg
+        productId={confirmId}
+        onClose={() => setConfirmId(null)}
+        onConfirmed={(productId) => {
+          setConfirmId(null)
+          setDetail(null)
+          setReloadKey((value) => value + 1)
+          onCompare(productId)
+        }}
       />
     </div>
   )
@@ -393,11 +430,15 @@ function DetailDrawer({
   onClose,
   onChanged,
   onStartMatch,
+  onConfirm,
+  onCompare,
 }: {
   item: Observation | null
   onClose: () => void
   onChanged: () => void
   onStartMatch: (matchJobId: number, returnTo: MatchHandoff) => void
+  onConfirm: (productId: number) => void
+  onCompare: (productId: number) => void
 }) {
   const [product, setProduct] = useState<Product | null>(null)
   const [copyLabel, setCopyLabel] = useState("Copy ASIN")
@@ -531,7 +572,12 @@ function DetailDrawer({
               <div>
                 <p className="text-xs text-muted-foreground">TCGPlayer</p>
                 <div className="mt-1">
-                  <TcgMatchCell match={product ?? item} />
+                  <TcgMatchCell
+                    match={product ?? item}
+                    productId={item.product_id}
+                    onConfirm={onConfirm}
+                    onCompare={onCompare}
+                  />
                 </div>
                 {(product ?? item).tcg_query ? (
                   <p className="mt-1 text-xs text-muted-foreground">

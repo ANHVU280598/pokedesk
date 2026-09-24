@@ -22,7 +22,7 @@ async def run_tcg_match(job_id: int, settings: dict, session) -> None:
     products = db.list_products_by_ids(product_ids)
     delay = float(settings.get("delay_ms") or 0) / 1000.0
     matched = 0
-    review = 0
+    confirm = 0
     unmatched = 0
     total = len(products)
     if total == 0:
@@ -53,8 +53,8 @@ async def run_tcg_match(job_id: int, settings: dict, session) -> None:
         decision = choose_match(query, parse_results(html))
         if decision["status"] == "matched":
             matched += 1
-        elif decision["status"] == "needs_review":
-            review += 1
+        elif decision["status"] == "needs_confirm":
+            confirm += 1
         else:
             unmatched += 1
         db.upsert_tcg_match(
@@ -65,15 +65,18 @@ async def run_tcg_match(job_id: int, settings: dict, session) -> None:
             tcg_url=decision["tcg_url"],
             tcg_name=decision["tcg_name"],
             tcg_set=decision["tcg_set"],
+            image_url=decision["image_url"],
             price=decision["price"],
+            price_label=decision["price_label"],
             currency=decision["currency"],
             confidence=decision["confidence"],
             raw=decision["raw"],
+            candidates=decision["candidates"],
         )
         if not db.note_match_progress(job_id, index, message):
             return
 
-    summary = f"Matched {matched}, needs review {review}, unmatched {unmatched}."
+    summary = f"Matched {matched}, confirm {confirm}, unmatched {unmatched}."
     db.complete_match_job(job_id, checked=total, message=summary)
 
 

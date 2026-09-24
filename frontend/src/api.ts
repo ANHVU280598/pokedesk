@@ -6,6 +6,7 @@ import type {
   JobMode,
   ObservationPage,
   OperatorSettings,
+  PriceCompare,
   Product,
   ProxyMode,
   SettingsWrite,
@@ -228,6 +229,17 @@ export function matchProductsOnTcg(productIds: number[]) {
 
 export function clearProductTcgMatch(productId: number) {
   return api<Product>(`/api/products/${productId}/tcg-match`, { method: "DELETE" })
+}
+
+export function confirmTcgCandidate(productId: number, candidateId: number) {
+  return api<Product>(`/api/products/${productId}/tcg-confirm`, {
+    method: "POST",
+    body: JSON.stringify({ candidate_id: candidateId }),
+  })
+}
+
+export function getCompare(productId: number) {
+  return api<PriceCompare>(`/api/products/${productId}/compare`)
 }
 
 export function deleteObservation(id: number) {

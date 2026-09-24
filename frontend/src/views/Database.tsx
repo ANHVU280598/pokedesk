@@ -9,6 +9,7 @@ import {
   SheetHeader,
   SheetTitle,
 } from "@/components/ui/sheet"
+import { ConfirmTcg } from "../components/ConfirmTcg"
 import { TcgMatchCell } from "../components/TcgMatch"
 import {
   ApiError,
@@ -33,8 +34,10 @@ type Tab = "products" | "jobs" | "duplicates"
 
 export function Database({
   onStartMatch,
+  onCompare,
 }: {
   onStartMatch: (matchJobId: number, returnTo: MatchHandoff) => void
+  onCompare: (productId: number) => void
 }) {
   const [tab, setTab] = useState<Tab>("products")
 
@@ -65,15 +68,23 @@ export function Database({
           </Button>
         ))}
       </div>
-      {tab === "products" ? <Products onStartMatch={onStartMatch} /> : tab === "jobs" ? <Jobs /> : <Duplicates />}
+      {tab === "products" ? (
+        <Products onStartMatch={onStartMatch} onCompare={onCompare} />
+      ) : tab === "jobs" ? (
+        <Jobs />
+      ) : (
+        <Duplicates />
+      )}
     </div>
   )
 }
 
 function Products({
   onStartMatch,
+  onCompare,
 }: {
   onStartMatch: (matchJobId: number, returnTo: MatchHandoff) => void
+  onCompare: (productId: number) => void
 }) {
   const [query, setQuery] = useState("")
   const [debounced, setDebounced] = useState("")
@@ -87,6 +98,7 @@ function Products({
   const [selectedId, setSelectedId] = useState<number | null>(null)
   const [matching, setMatching] = useState(false)
   const [matchNote, setMatchNote] = useState<string | null>(null)
+  const [confirmId, setConfirmId] = useState<number | null>(null)
 
   useEffect(() => {
     const timer = window.setTimeout(() => setDebounced(query.trim()), 200)
@@ -217,6 +229,11 @@ function Products({
         </Button>
         {matchNote ? <p className="text-sm text-muted-foreground">{matchNote}</p> : null}
       </div>
+      {items?.some((item) => item.tcg_status === "needs_confirm") ? (
+        <p className="mb-3 rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-950">
+          Some products have more than one plausible TCGPlayer listing. Choose a listing before that product counts as matched.
+        </p>
+      ) : null}
       {error ? (
         <p className="mb-3 rounded-md border border-rose-200 bg-rose-50 px-3 py-2 text-sm text-rose-900">{error}</p>
       ) : null}
@@ -253,7 +270,12 @@ function Products({
                     {formatBought(item.bought_past_month, item.bought_past_month_text)}
                   </td>
                   <td className="px-3 py-2">
-                    <TcgMatchCell match={item} />
+                    <TcgMatchCell
+                      match={item}
+                      productId={item.id}
+                      onConfirm={setConfirmId}
+                      onCompare={onCompare}
+                    />
                   </td>
                   <td className="px-3 py-2">{item.observation_count}</td>
                 </tr>
@@ -285,6 +307,18 @@ function Products({
         onClose={() => setSelectedId(null)}
         onChanged={reload}
         onStartMatch={onStartMatch}
+        onConfirm={setConfirmId}
+        onCompare={onCompare}
+      />
+      <ConfirmTcg
+        productId={confirmId}
+        onClose={() => setConfirmId(null)}
+        onConfirmed={(productId) => {
+          setConfirmId(null)
+          setSelectedId(null)
+          reload()
+          onCompare(productId)
+        }}
       />
     </div>
   )
@@ -295,11 +329,15 @@ function ProductEditor({
   onClose,
   onChanged,
   onStartMatch,
+  onConfirm,
+  onCompare,
 }: {
   productId: number | null
   onClose: () => void
   onChanged: () => void
   onStartMatch: (matchJobId: number, returnTo: MatchHandoff) => void
+  onConfirm: (productId: number) => void
+  onCompare: (productId: number) => void
 }) {
   const [product, setProduct] = useState<Product | null>(null)
   const [section, setSection] = useState<"edit" | "observations">("edit")
@@ -462,7 +500,12 @@ function ProductEditor({
               <div className="rounded-lg border p-3 text-sm">
                 <p className="text-xs text-muted-foreground">TCGPlayer</p>
                 <div className="mt-1">
-                  <TcgMatchCell match={product} />
+                  <TcgMatchCell
+                    match={product}
+                    productId={product.id}
+                    onConfirm={onConfirm}
+                    onCompare={onCompare}
+                  />
                 </div>
                 {product.tcg_query ? (
                   <p className="mt-1 text-xs text-muted-foreground">Searched “{product.tcg_query}”</p>

@@ -11,6 +11,7 @@ from app.schemas import (
     ProductMerge,
     ProductTcgMatch,
     ProductUpdate,
+    TcgConfirm,
     RecheckBody,
     SettingsUpdate,
     TcgMatchBody,
@@ -310,6 +311,21 @@ async def patch_product(product_id: int, body: ProductUpdate) -> dict:
             category_breadcrumbs=body.category_breadcrumbs,
         )
     )
+
+
+@router.post("/products/{product_id}/tcg-confirm")
+async def confirm_product_tcg(product_id: int, body: TcgConfirm) -> dict:
+    return _catalog(lambda: db.confirm_tcg_candidate(product_id, body.candidate_id))
+
+
+@router.get("/products/{product_id}/compare")
+async def compare_product(product_id: int) -> dict:
+    compared = db.product_compare(product_id)
+    if compared is None:
+        raise HTTPException(404, "Product not found")
+    if compared["status"] != "matched":
+        raise HTTPException(409, "Confirm a TCGPlayer listing before comparing prices")
+    return compared
 
 
 @router.delete("/products/{product_id}/tcg-match")

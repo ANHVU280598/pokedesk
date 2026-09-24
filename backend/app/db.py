@@ -71,6 +71,58 @@ def _migrate(conn: sqlite3.Connection) -> None:
     conn.execute(
         "CREATE INDEX IF NOT EXISTS ix_jobs_parent ON scrape_jobs(parent_job_id)"
     )
+    _migrate_tcg_matches(conn)
+
+
+def _migrate_tcg_matches(conn: sqlite3.Connection) -> None:
+    """Rebuild an older matches table so confirm-status and price labels fit.
+
+    SQLite cannot alter a CHECK constraint in place. Fresh databases already
+    have the new table from schema.sql.
+    """
+    row = conn.execute(
+        "SELECT sql FROM sqlite_master WHERE type = 'table' AND name = 'tcgplayer_matches'"
+    ).fetchone()
+    if row is None:
+        return
+    sql = row["sql"] or ""
+    if "needs_confirm" in sql and "price_label" in sql:
+        return
+    conn.execute("ALTER TABLE tcgplayer_matches RENAME TO tcgplayer_matches_old")
+    conn.execute(
+        """
+        CREATE TABLE tcgplayer_matches (
+          product_id INTEGER PRIMARY KEY REFERENCES products(id) ON DELETE CASCADE,
+          job_id INTEGER REFERENCES scrape_jobs(id) ON DELETE SET NULL,
+          query TEXT NOT NULL,
+          status TEXT NOT NULL CHECK (status IN ('matched', 'needs_confirm', 'unmatched')),
+          tcg_url TEXT,
+          tcg_name TEXT,
+          tcg_set TEXT,
+          image_url TEXT,
+          price REAL,
+          price_label TEXT,
+          currency TEXT,
+          confidence REAL,
+          raw_json TEXT,
+          matched_at TEXT NOT NULL
+        )
+        """
+    )
+    conn.execute(
+        """
+        INSERT INTO tcgplayer_matches (
+          product_id, job_id, query, status, tcg_url, tcg_name, tcg_set,
+          price, currency, confidence, raw_json, matched_at
+        )
+        SELECT product_id, job_id, query,
+               CASE status WHEN 'needs_review' THEN 'needs_confirm' ELSE status END,
+               tcg_url, tcg_name, tcg_set, price, currency, confidence, raw_json, matched_at
+        FROM tcgplayer_matches_old
+        """
+    )
+    conn.execute("DROP TABLE tcgplayer_matches_old")
+    conn.execute("CREATE INDEX IF NOT EXISTS ix_tcg_job ON tcgplayer_matches(job_id)")
 
 
 def close_db() -> None:
@@ -808,7 +860,9 @@ def list_observations(
                    o.source,
                    p.asin, p.title, p.image_url, p.product_url, p.category_breadcrumbs,
                    m.status AS tcg_status, m.tcg_url, m.tcg_name, m.tcg_set,
-                   m.price AS tcg_price, m.currency AS tcg_currency,
+                   m.image_url AS tcg_image_url,
+                   m.price AS tcg_price, m.price_label AS tcg_price_label,
+                   m.currency AS tcg_currency,
                    m.confidence AS tcg_confidence, m.query AS tcg_query
             FROM scrape_observations o
             JOIN products p ON p.id = o.product_id
@@ -849,6 +903,14 @@ def get_product(product_id: int) -> dict | None:
             "SELECT * FROM tcgplayer_matches WHERE product_id = ?",
             (product_id,),
         ).fetchone()
+        candidate_rows = conn.execute(
+            """
+            SELECT * FROM tcgplayer_candidates
+            WHERE product_id = ?
+            ORDER BY position ASC, id ASC
+            """,
+            (product_id,),
+        ).fetchall()
     product = dict(row)
     history = []
     for obs in observations:
@@ -857,6 +919,7 @@ def get_product(product_id: int) -> dict | None:
         history.append(item)
     product["observations"] = history
     product.update(_match_public(match))
+    product["tcg_candidates"] = [_candidate_public(row) for row in candidate_rows]
     return product
 
 
@@ -867,7 +930,9 @@ def _match_public(row: sqlite3.Row | None) -> dict:
             "tcg_url": None,
             "tcg_name": None,
             "tcg_set": None,
+            "tcg_image_url": None,
             "tcg_price": None,
+            "tcg_price_label": None,
             "tcg_currency": None,
             "tcg_confidence": None,
             "tcg_query": None,
@@ -877,10 +942,142 @@ def _match_public(row: sqlite3.Row | None) -> dict:
         "tcg_url": row["tcg_url"],
         "tcg_name": row["tcg_name"],
         "tcg_set": row["tcg_set"],
+        "tcg_image_url": row["image_url"] if "image_url" in row.keys() else None,
         "tcg_price": row["price"],
+        "tcg_price_label": row["price_label"] if "price_label" in row.keys() else None,
         "tcg_currency": row["currency"],
         "tcg_confidence": row["confidence"],
         "tcg_query": row["query"],
+    }
+
+
+def _candidate_public(row: sqlite3.Row) -> dict:
+    try:
+        prices = json.loads(row["prices_json"] or "[]")
+    except json.JSONDecodeError:
+        prices = []
+    if not isinstance(prices, list):
+        prices = []
+    return {
+        "id": int(row["id"]),
+        "name": row["name"],
+        "set_name": row["set_name"],
+        "url": row["url"],
+        "image_url": row["image_url"],
+        "price": row["price"],
+        "price_label": row["price_label"],
+        "currency": row["currency"],
+        "prices": prices,
+        "confidence": row["confidence"],
+    }
+
+
+def confirm_tcg_candidate(product_id: int, candidate_id: int) -> dict:
+    now = utcnow()
+    with _tx() as conn:
+        product = conn.execute("SELECT id FROM products WHERE id = ?", (product_id,)).fetchone()
+        if product is None:
+            raise LookupError(product_id)
+        candidate = conn.execute(
+            "SELECT * FROM tcgplayer_candidates WHERE id = ? AND product_id = ?",
+            (candidate_id, product_id),
+        ).fetchone()
+        if candidate is None:
+            raise ValueError("That TCGPlayer listing is not a candidate for this product")
+        match = conn.execute(
+            "SELECT product_id FROM tcgplayer_matches WHERE product_id = ?",
+            (product_id,),
+        ).fetchone()
+        if match is None:
+            raise ValueError("Run a TCGPlayer match before confirming a listing")
+        conn.execute(
+            """
+            UPDATE tcgplayer_matches
+            SET status = 'matched',
+                tcg_url = ?,
+                tcg_name = ?,
+                tcg_set = ?,
+                image_url = ?,
+                price = ?,
+                price_label = ?,
+                currency = ?,
+                confidence = ?,
+                matched_at = ?
+            WHERE product_id = ?
+            """,
+            (
+                candidate["url"],
+                candidate["name"],
+                candidate["set_name"],
+                candidate["image_url"],
+                candidate["price"],
+                candidate["price_label"],
+                candidate["currency"],
+                candidate["confidence"],
+                now,
+                product_id,
+            ),
+        )
+    product = get_product(product_id)
+    assert product is not None
+    return product
+
+
+def product_compare(product_id: int) -> dict | None:
+    product = get_product(product_id)
+    if product is None:
+        return None
+    latest = product["observations"][0] if product["observations"] else None
+    amazon_price = None if latest is None else latest["price"]
+    amazon_currency = None if latest is None else latest["currency"]
+    matched = product.get("tcg_status") == "matched"
+    tcg_price = product.get("tcg_price") if matched else None
+    selected = None
+    if matched and product.get("tcg_url"):
+        selected = next(
+            (item for item in product.get("tcg_candidates") or [] if item["url"] == product["tcg_url"]),
+            None,
+        )
+    difference = None
+    lower = None
+    if amazon_price is not None and tcg_price is not None:
+        difference = round(float(amazon_price) - float(tcg_price), 2)
+        if abs(difference) < 0.005:
+            lower = "same"
+        elif difference > 0:
+            lower = "tcgplayer"
+        else:
+            lower = "amazon"
+    href = product.get("product_url")
+    if not href and product.get("asin"):
+        href = f"https://www.amazon.com/dp/{product['asin']}"
+    return {
+        "product_id": product_id,
+        "status": product.get("tcg_status"),
+        "amazon": {
+            "title": product["title"],
+            "image_url": product.get("image_url"),
+            "asin": product.get("asin"),
+            "price": amazon_price,
+            "currency": amazon_currency or "USD",
+            "bought_past_month": None if latest is None else latest.get("bought_past_month"),
+            "bought_past_month_text": None if latest is None else latest.get("bought_past_month_text"),
+            "url": href,
+        },
+        "tcg": None
+        if not matched
+        else {
+            "name": product.get("tcg_name"),
+            "set_name": product.get("tcg_set"),
+            "image_url": product.get("tcg_image_url"),
+            "url": product.get("tcg_url"),
+            "price": tcg_price,
+            "price_label": product.get("tcg_price_label"),
+            "currency": product.get("tcg_currency") or "USD",
+            "prices": [] if selected is None else selected.get("prices") or [],
+        },
+        "difference": difference,
+        "lower": lower,
     }
 
 
@@ -955,10 +1152,13 @@ def upsert_tcg_match(
     tcg_url: str | None,
     tcg_name: str | None,
     tcg_set: str | None,
+    image_url: str | None,
     price: float | None,
+    price_label: str | None,
     currency: str | None,
     confidence: float | None,
     raw: dict | None,
+    candidates: list[dict],
 ) -> None:
     now = utcnow()
     with _tx() as conn:
@@ -966,8 +1166,8 @@ def upsert_tcg_match(
             """
             INSERT INTO tcgplayer_matches (
               product_id, job_id, query, status, tcg_url, tcg_name, tcg_set,
-              price, currency, confidence, raw_json, matched_at
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+              image_url, price, price_label, currency, confidence, raw_json, matched_at
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             ON CONFLICT(product_id) DO UPDATE SET
               job_id = excluded.job_id,
               query = excluded.query,
@@ -975,7 +1175,9 @@ def upsert_tcg_match(
               tcg_url = excluded.tcg_url,
               tcg_name = excluded.tcg_name,
               tcg_set = excluded.tcg_set,
+              image_url = excluded.image_url,
               price = excluded.price,
+              price_label = excluded.price_label,
               currency = excluded.currency,
               confidence = excluded.confidence,
               raw_json = excluded.raw_json,
@@ -989,13 +1191,38 @@ def upsert_tcg_match(
                 tcg_url,
                 tcg_name,
                 tcg_set,
+                image_url,
                 price,
+                price_label,
                 currency,
                 confidence,
                 json.dumps(raw or {}),
                 now,
             ),
         )
+        conn.execute("DELETE FROM tcgplayer_candidates WHERE product_id = ?", (product_id,))
+        for position, candidate in enumerate(candidates):
+            conn.execute(
+                """
+                INSERT INTO tcgplayer_candidates (
+                  product_id, name, set_name, url, image_url, price, price_label,
+                  currency, prices_json, confidence, position
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                """,
+                (
+                    product_id,
+                    candidate.get("name") or "TCGPlayer listing",
+                    candidate.get("set_name"),
+                    candidate.get("url") or "",
+                    candidate.get("image_url"),
+                    candidate.get("price"),
+                    candidate.get("price_label"),
+                    candidate.get("currency") or "USD",
+                    json.dumps(candidate.get("prices") or []),
+                    float(candidate.get("confidence") or 0),
+                    position,
+                ),
+            )
 
 
 def clear_tcg_match(product_id: int) -> None:
@@ -1003,11 +1230,21 @@ def clear_tcg_match(product_id: int) -> None:
         row = conn.execute("SELECT id FROM products WHERE id = ?", (product_id,)).fetchone()
         if row is None:
             raise LookupError(product_id)
+        conn.execute("DELETE FROM tcgplayer_candidates WHERE product_id = ?", (product_id,))
         conn.execute("DELETE FROM tcgplayer_matches WHERE product_id = ?", (product_id,))
 
 
 def clear_tcg_matches_for_job(job_id: int) -> int:
     with _tx() as conn:
+        cur = conn.execute(
+            """
+            DELETE FROM tcgplayer_candidates
+            WHERE product_id IN (
+              SELECT product_id FROM scrape_observations WHERE job_id = ?
+            )
+            """,
+            (job_id,),
+        )
         cur = conn.execute(
             """
             DELETE FROM tcgplayer_matches
@@ -1172,7 +1409,9 @@ def _product_brief(row: sqlite3.Row, observation_count: int) -> dict:
         "tcg_url": row["tcg_url"],
         "tcg_name": row["tcg_name"],
         "tcg_set": row["tcg_set"],
+        "tcg_image_url": row["tcg_image_url"],
         "tcg_price": row["tcg_price"],
+        "tcg_price_label": row["tcg_price_label"],
         "tcg_currency": row["tcg_currency"],
         "tcg_confidence": row["tcg_confidence"],
         "tcg_query": row["tcg_query"],
@@ -1236,7 +1475,9 @@ def list_products(
                    tcg.tcg_url AS tcg_url,
                    tcg.tcg_name AS tcg_name,
                    tcg.tcg_set AS tcg_set,
+                   tcg.image_url AS tcg_image_url,
                    tcg.price AS tcg_price,
+                   tcg.price_label AS tcg_price_label,
                    tcg.currency AS tcg_currency,
                    tcg.confidence AS tcg_confidence,
                    tcg.query AS tcg_query
@@ -1434,6 +1675,10 @@ def merge_products(keep_id: int, drop_id: int) -> dict:
             (keep_id,),
         ).fetchone()
         if keep_match is None:
+            conn.execute(
+                "UPDATE tcgplayer_candidates SET product_id = ? WHERE product_id = ?",
+                (keep_id, drop_id),
+            )
             conn.execute(
                 "UPDATE tcgplayer_matches SET product_id = ? WHERE product_id = ?",
                 (keep_id, drop_id),

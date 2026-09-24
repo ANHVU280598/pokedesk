@@ -92,7 +92,9 @@ export type Observation = {
   tcg_url?: string | null
   tcg_name?: string | null
   tcg_set?: string | null
+  tcg_image_url?: string | null
   tcg_price?: number | null
+  tcg_price_label?: string | null
   tcg_currency?: string | null
   tcg_confidence?: number | null
   tcg_query?: string | null
@@ -135,10 +137,13 @@ export type Product = {
   tcg_url?: string | null
   tcg_name?: string | null
   tcg_set?: string | null
+  tcg_image_url?: string | null
   tcg_price?: number | null
+  tcg_price_label?: string | null
   tcg_currency?: string | null
   tcg_confidence?: number | null
   tcg_query?: string | null
+  tcg_candidates?: TcgCandidate[]
 }
 
 export type OperatorSettings = {
@@ -198,8 +203,55 @@ export type CatalogProduct = {
   tcg_url?: string | null
   tcg_name?: string | null
   tcg_set?: string | null
+  tcg_image_url?: string | null
   tcg_price?: number | null
+  tcg_price_label?: string | null
   tcg_currency?: string | null
+}
+
+export type TcgPrice = {
+  label: string
+  amount: number
+}
+
+export type TcgCandidate = {
+  id: number
+  name: string
+  set_name: string | null
+  url: string
+  image_url: string | null
+  price: number | null
+  price_label: string | null
+  currency: string | null
+  prices: TcgPrice[]
+  confidence: number
+}
+
+export type PriceCompare = {
+  product_id: number
+  status: string | null
+  amazon: {
+    title: string
+    image_url: string | null
+    asin: string | null
+    price: number | null
+    currency: string | null
+    bought_past_month: number | null
+    bought_past_month_text: string | null
+    url: string | null
+  }
+  tcg: {
+    name: string | null
+    set_name: string | null
+    image_url: string | null
+    url: string | null
+    price: number | null
+    price_label: string | null
+    currency: string | null
+    prices: TcgPrice[]
+  } | null
+  difference: number | null
+  lower: "amazon" | "tcgplayer" | "same" | null
 }
 
 export type DuplicateHint = {
@@ -213,6 +265,6 @@ export type DuplicateHint = {
   drop_asin: string | null
 }
 
-export type View = "new" | "live" | "results" | "history" | "settings" | "database"
+export type View = "new" | "live" | "results" | "history" | "settings" | "database" | "compare"
 
 export type MatchHandoff = { view: "results"; jobId: number } | { view: "database" }

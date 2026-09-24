@@ -82,11 +82,13 @@ CREATE TABLE IF NOT EXISTS tcgplayer_matches (
   product_id INTEGER PRIMARY KEY REFERENCES products(id) ON DELETE CASCADE,
   job_id INTEGER REFERENCES scrape_jobs(id) ON DELETE SET NULL,
   query TEXT NOT NULL,
-  status TEXT NOT NULL CHECK (status IN ('matched', 'needs_review', 'unmatched')),
+  status TEXT NOT NULL CHECK (status IN ('matched', 'needs_confirm', 'unmatched')),
   tcg_url TEXT,
   tcg_name TEXT,
   tcg_set TEXT,
+  image_url TEXT,
   price REAL,
+  price_label TEXT,
   currency TEXT,
   confidence REAL,
   raw_json TEXT,
@@ -94,3 +96,20 @@ CREATE TABLE IF NOT EXISTS tcgplayer_matches (
 );
 
 CREATE INDEX IF NOT EXISTS ix_tcg_job ON tcgplayer_matches(job_id);
+
+CREATE TABLE IF NOT EXISTS tcgplayer_candidates (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  product_id INTEGER NOT NULL REFERENCES products(id) ON DELETE CASCADE,
+  name TEXT NOT NULL,
+  set_name TEXT,
+  url TEXT NOT NULL,
+  image_url TEXT,
+  price REAL,
+  price_label TEXT,
+  currency TEXT,
+  prices_json TEXT,
+  confidence REAL NOT NULL,
+  position INTEGER NOT NULL
+);
+
+CREATE INDEX IF NOT EXISTS ix_tcg_candidates_product ON tcgplayer_candidates(product_id);

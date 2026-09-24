@@ -69,3 +69,7 @@ class TcgMatchBody(BaseModel):
 
 class ProductTcgMatch(BaseModel):
     product_ids: list[int] = Field(min_length=1, max_length=500)
+
+
+class TcgConfirm(BaseModel):
+    candidate_id: int

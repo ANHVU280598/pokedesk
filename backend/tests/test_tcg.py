@@ -46,7 +46,14 @@ def test_choose_match_skips_empty_and_unrelated_hits():
     assert chosen["tcg_name"] == "Charizard ex Tin"
     assert chosen["tcg_url"].endswith("/1003/charizard-ex-tin")
     assert chosen["price"] == 18.5
+    assert chosen["price_label"] == "Market"
     assert chosen["tcg_set"] == "Scarlet & Violet"
+    assert len(chosen["candidates"]) == 1
+
+    several = choose_match("Elite Trainer Box Twilight Masquerade", parse_results(fixture_html("Twilight Masquerade Elite Trainer Box")))
+    assert several["status"] == "needs_confirm"
+    assert several["tcg_url"] is None
+    assert len(several["candidates"]) == 2
 
 
 def test_blocked_page_is_detected_without_treating_a_normal_miss_as_a_block():
@@ -88,7 +95,7 @@ def test_fixture_job_match_links_cards_and_leaves_sleeves_unmatched(client):
     assert body["settings"]["source_job_id"] == amazon["id"]
     finished = _wait(client, body["id"], lambda item: item["status"] == "completed")
     assert finished["pages_visited"] == 4
-    assert finished["error_message"] == "Matched 3, needs review 0, unmatched 1."
+    assert finished["error_message"] == "Matched 2, confirm 1, unmatched 1."
 
     again = client.get(f"/api/jobs/{amazon['id']}/observations").json()["items"]
     by_asin = {item["asin"]: item for item in again}
@@ -98,8 +105,11 @@ def test_fixture_job_match_links_cards_and_leaves_sleeves_unmatched(client):
     assert booster["tcg_status"] == "matched"
     assert booster["tcg_name"] == "Scarlet & Violet Booster Box"
     assert booster["tcg_price"] == 139.99
+    assert booster["tcg_price_label"] == "Market"
     assert "tcgplayer.com/product/1001/" in booster["tcg_url"]
-    assert by_asin["B0PKMN0002"]["tcg_status"] == "matched"
+    etb = by_asin["B0PKMN0002"]
+    assert etb["tcg_status"] == "needs_confirm"
+    assert etb["tcg_url"] is None
     assert by_asin["B0PKMN0003"]["tcg_name"] == "Charizard ex Tin"
     sleeves = by_asin["B0PKMN0004"]
     assert sleeves["tcg_status"] == "unmatched"
@@ -107,6 +117,27 @@ def test_fixture_job_match_links_cards_and_leaves_sleeves_unmatched(client):
 
     product = client.get(f"/api/products/{booster['product_id']}").json()
     assert product["tcg_status"] == "matched"
+    compare = client.get(f"/api/products/{booster['product_id']}/compare").json()
+    assert compare["amazon"]["price"] == 143.99
+    assert compare["tcg"]["price"] == 139.99
+    assert compare["tcg"]["price_label"] == "Market"
+    assert compare["lower"] == "tcgplayer"
+    blocked = client.get(f"/api/products/{etb['product_id']}/compare")
+    assert blocked.status_code == 409
+
+    detail = client.get(f"/api/products/{etb['product_id']}").json()
+    assert len(detail["tcg_candidates"]) == 2
+    choice = next(item for item in detail["tcg_candidates"] if item["name"] == "Twilight Masquerade Elite Trainer Box")
+    confirmed = client.post(
+        f"/api/products/{etb['product_id']}/tcg-confirm",
+        json={"candidate_id": choice["id"]},
+    )
+    assert confirmed.status_code == 200, confirmed.text
+    assert confirmed.json()["tcg_status"] == "matched"
+    assert confirmed.json()["tcg_price"] == 44.95
+    etb_compare = client.get(f"/api/products/{etb['product_id']}/compare").json()
+    assert etb_compare["amazon"]["price"] == 49.5
+    assert etb_compare["lower"] == "tcgplayer"
     catalog = client.get("/api/products", params={"q": "Sleeves"}).json()
     sleeve_row = next(item for item in catalog["items"] if item["asin"] == "B0PKMN0004")
     assert sleeve_row["tcg_status"] == "unmatched"

@@ -4,6 +4,7 @@ import { listJobs } from "./api"
 import { Sidebar } from "./components/Sidebar"
 import type { Job, MatchHandoff, View } from "./types"
 import { History } from "./views/History"
+import { Compare } from "./views/Compare"
 import { Database } from "./views/Database"
 import { LiveJob } from "./views/LiveJob"
 import { NewScrape } from "./views/NewScrape"
@@ -19,6 +20,8 @@ export default function App() {
   const [running, setRunning] = useState(false)
   const [booted, setBooted] = useState(false)
   const [apiDown, setApiDown] = useState(false)
+  const [compareProductId, setCompareProductId] = useState<number | null>(null)
+  const [compareFrom, setCompareFrom] = useState<"results" | "database">("results")
   const matchHandoff = useRef<{ matchJobId: number; returnTo: MatchHandoff } | null>(null)
 
   const boot = useCallback(async () => {
@@ -63,6 +66,12 @@ export default function App() {
   function openResults(jobId: number) {
     setResultsJobId(jobId)
     setView("results")
+  }
+
+  function openCompare(productId: number, from: "results" | "database") {
+    setCompareProductId(productId)
+    setCompareFrom(from)
+    setView("compare")
   }
 
   function startMatch(matchJobId: number, returnTo: MatchHandoff) {
@@ -113,11 +122,18 @@ export default function App() {
             onStartMatch={startMatch}
           />
         ) : view === "results" ? (
-          <Results initialJobId={resultsJobId} onStartMatch={startMatch} />
+          <Results
+            initialJobId={resultsJobId}
+            onStartMatch={startMatch}
+            onJobChange={setResultsJobId}
+            onCompare={(productId) => openCompare(productId, "results")}
+          />
         ) : view === "history" ? (
           <History onView={openResults} onStarted={started} />
         ) : view === "database" ? (
-          <Database onStartMatch={startMatch} />
+          <Database onStartMatch={startMatch} onCompare={(productId) => openCompare(productId, "database")} />
+        ) : view === "compare" ? (
+          <Compare productId={compareProductId} onBack={() => setView(compareFrom)} />
         ) : (
           <Settings />
         )}

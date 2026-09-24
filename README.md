@@ -180,11 +180,14 @@ MVP choices baked in:
 - `scrape_jobs.parent_job_id` points at the blocked job a follow-up was created from. Deleting the parent clears the link.
 - `scrape_observations.source` is `results` or `related`. A related card does not replace that job’s results snapshot for the same product.
 - `bought_past_month` and `bought_past_month_text` sit on each observation, like price. They stay empty when the card does not show a “bought in past month” count. Results can sort by that number.
-- `tcgplayer_matches` stores one current TCGPlayer lookup per product (URL, name, set, price, confidence, and `matched`, `needs_review`, or `unmatched`). It survives later Amazon jobs. Clear or re-run replaces it.
+- `tcgplayer_matches` stores one current TCGPlayer lookup per product (URL, name, set, image, price, the raw price label such as Market, confidence, and `matched`, `needs_confirm`, or `unmatched`). It survives later Amazon jobs. Clear or re-run replaces it.
+- `tcgplayer_candidates` stores each plausible listing from that lookup (name, set, URL, image, labeled prices). Confirm copies the chosen row onto the match.
 
 ## TCGPlayer match
 
-After an Amazon job has products, click **Match on TCGPlayer** on **Results** to start a match for that job’s list. A finished Amazon scrape leaves matching idle until that click. The same button is on Live job. A product row can also be matched from its detail. The click opens **Live job** for the match pass: progress, pause, and stop apply between products, the same way they do between Amazon pages. When the pass finishes, Results shows the links. The worker strips “Pokemon”, “TCG”, and pack-count noise from the title, then keeps a hit only when the names share a distinctive token. An empty search, or a clearly unrelated hit, is stored as unmatched. A weaker overlap is marked needs review.
+After an Amazon job has products, click **Match on TCGPlayer** on **Results** to start a match for that job’s list. A finished Amazon scrape leaves matching idle until that click. The same button is on Live job. A product row can also be matched from its detail. The click opens **Live job** for the match pass: progress, pause, and stop apply between products, the same way they do between Amazon pages. When the pass finishes, Results shows each product’s listings.
+
+The worker strips “Pokemon”, “TCG”, and pack-count noise from the title, then scores TCGPlayer hits and keeps the price label that the page shows (Market, Low, Mid, or whatever is printed) plus the numeric amount when it parses. Exactly one strong hit is stored as matched, with that price, and the row offers **Compare**. More than one plausible listing is `needs_confirm`: nothing is chosen until **Choose listing** picks a radio option. Confirming that listing marks the product matched and opens **Compare prices**, Amazon on one side and the confirmed TCGPlayer card on the other, with the price gap. A matched row can be changed later from **Change**. An empty search, or a clearly unrelated hit, stays unmatched. No listing is invented.
 
 A dry-run Amazon job matches against saved search HTML, so tests and fixture scrapes do not open TCGPlayer. Products that have only ever been seen in fixture jobs stay on that path. A product from a live Amazon scrape uses Playwright against `tcgplayer.com` Pokemon search. One pass matches up to 500 products. Soft-blocks keep the matches already stored.
 
@@ -208,6 +211,8 @@ A dry-run Amazon job matches against saved search HTML, so tests and fixture scr
 | DELETE | `/api/jobs/{id}/tcg-match` | Clear TCGPlayer matches for products in that job |
 | POST | `/api/products/tcg-match` | Queue a match for `product_ids` |
 | DELETE | `/api/products/{id}/tcg-match` | Clear one product’s TCGPlayer match |
+| POST | `/api/products/{id}/tcg-confirm` | Confirm one stored candidate (`candidate_id`) as the match |
+| GET | `/api/products/{id}/compare` | Amazon price beside the confirmed TCGPlayer price. 409 until the listing is confirmed |
 | GET | `/api/products` | Search the catalog (`q`, `has_asin`, `last_seen_after`, `last_seen_before`, `limit`, `offset`) |
 | GET | `/api/products/duplicates` | Same-title and no-ASIN hints |
 | POST | `/api/products/merge` | Merge `drop_id` into `keep_id` and reassign observations |
