@@ -125,10 +125,10 @@ def test_pause_and_stop_during_related_expansion(client):
         client,
         paused_job["id"],
         lambda item: item["settings"].get("pattern_phase") == "related"
-        and (item.get("error_message") or "").startswith("Related items:"),
+        and (item.get("error_message") or "").startswith("Related:"),
         timeout=8,
     )
-    assert running["error_message"].startswith("Related items:")
+    assert running["error_message"].startswith("Related:")
     paused = client.post(f"/api/jobs/{running['id']}/pause")
     assert paused.status_code == 200
     assert paused.json()["status"] == "paused"
@@ -140,7 +140,7 @@ def test_pause_and_stop_during_related_expansion(client):
         client,
         running["id"],
         lambda item: item["status"] == "blocked",
-        timeout=20,
+        timeout=40,
     )
     assert finished["settings"]["related_visited"] == 3
     related = client.get(f"/api/jobs/{finished['id']}/observations").json()
@@ -151,7 +151,7 @@ def test_pause_and_stop_during_related_expansion(client):
         client,
         stopped_job["id"],
         lambda item: item["settings"].get("pattern_phase") == "related"
-        and (item.get("error_message") or "").startswith("Related items:"),
+        and (item.get("error_message") or "").startswith("Related:"),
     )
     stopped = client.post(f"/api/jobs/{stopped_job['id']}/stop")
     assert stopped.status_code == 200
@@ -164,3 +164,39 @@ def test_pause_and_stop_during_related_expansion(client):
     assert settled["status"] == "completed"
     assert settled["settings"].get("recheck_outcome") in {None, ""}
     assert settled["status"] != "blocked"
+
+
+def test_expansion_returns_to_page_one_between_cards(client, monkeypatch):
+    from app.scraper.sessions import FixtureSession
+
+    steps: list[tuple] = []
+
+    class Recording(FixtureSession):
+        async def get(self, url):
+            steps.append(("get", url))
+            return await super().get(url)
+
+        async def open_result_card(self, index, fallback_url):
+            steps.append(("card", index, fallback_url))
+            return await super().open_result_card(index, fallback_url)
+
+    monkeypatch.setattr("app.scraper.runner.FixtureSession", Recording)
+    created = _related(client, limit=3, recheck=True)
+    done = _wait(
+        client,
+        created["id"],
+        lambda item: item["status"] == "blocked" and item["settings"].get("recheck_outcome"),
+    )
+    assert done["settings"]["related_visited"] == 3
+    page_one = "fixture://relatedcap/1"
+    assert steps == [
+        ("get", page_one),
+        ("get", page_one),
+        ("card", 1, "https://www.amazon.com/dp/B0SEED0001"),
+        ("get", page_one),
+        ("card", 2, "https://www.amazon.com/dp/B0SEED0002"),
+        ("get", page_one),
+        ("card", 3, "https://www.amazon.com/dp/B0SEED0003"),
+        ("get", page_one),
+        ("get", page_one),
+    ]

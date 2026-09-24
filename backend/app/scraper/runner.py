@@ -9,6 +9,7 @@ import time
 from app import db
 from app.scraper.parser import card_payload, parse_related_cards, parse_results
 from app.scraper.sessions import FixtureSession, PlaywrightSession
+from app.scraper.urls import with_page
 from app.service import (
     playwright_proxy,
     recheck_patch,
@@ -347,11 +348,41 @@ async def _stop_or_continue(
     return None
 
 
-async def _expand_related(session, job_id: int) -> str:
-    """Open up to N early result cards on the crawl's existing page.
+def _page_one_url(job: dict) -> str:
+    """Page 1 of this job's search, not the blocked deep page."""
+    start = (job.get("start_url") or "").strip()
+    resume = str((job.get("settings") or {}).get("resume_url") or "").strip()
+    for url in (start, resume):
+        if url.startswith("fixture://"):
+            name = url[len("fixture://") :].split("/", 1)[0]
+            return f"fixture://{name}/1" if name else url
+        if url.startswith("http://") or url.startswith("https://"):
+            return with_page(url, 1)
+    return start or resume
 
-    session.get navigates that same browser, context, and page. Cookies,
-    storage, and the job proxy stay put. This does not launch another browser.
+
+def _leave_related(job_id: int, status: str) -> str:
+    db.merge_settings(job_id, {"pattern_phase": None})
+    return status
+
+
+async def _pace(job_id: int, delay_s: float) -> str | None:
+    """Wait out pause, then the polite delay. Returns a status when the job left running."""
+    status = await wait_until_not_paused(job_id)
+    if status != "running":
+        return status
+    if await sleep_while_running(job_id, delay_s) != "running":
+        return db.get_status(job_id) or "failed"
+    return None
+
+
+async def _expand_related(session, job_id: int) -> str:
+    """Page 1 → click card i → store related items → page 1, for i in 1..N.
+
+    Uses the crawl's existing browser, context, and page. The list click is the
+    way onto the product. The stored product URL is only the fallback when that
+    click does not open a product page. After each card, load page 1 again —
+    not the blocked deep page. That recheck happens after this loop.
     """
     job = db.get_job(job_id)
     if job is None:
@@ -360,49 +391,66 @@ async def _expand_related(session, job_id: int) -> str:
     limit = max(0, int(settings.get("related_cards_limit") or 0))
     seeds = db.list_result_cards(job_id, limit)
     delay_s = int(settings.get("delay_ms") or 0) / 1000
+    page_one = _page_one_url(job)
     db.merge_settings(
         job_id,
         {
             "pattern_phase": "related",
             "related_index": 0,
-            "related_total": len(seeds),
+            "related_total": limit,
             "related_visited": 0,
         },
     )
+    db.set_error_message_if_running(job_id, "Related: back to page 1…")
+    if (halted := await _pace(job_id, delay_s)) is not None:
+        return _leave_related(job_id, halted)
+    try:
+        await session.get(page_one)
+    except Exception:
+        logger.info("job %s could not reopen results page 1", job_id)
+        if db.get_status(job_id) != "running":
+            return _leave_related(job_id, db.get_status(job_id) or "failed")
+        return _leave_related(job_id, "running")
+
     visited = 0
     for index, seed in enumerate(seeds, start=1):
-        status = await wait_until_not_paused(job_id)
-        if status != "running":
-            db.merge_settings(job_id, {"pattern_phase": None})
-            return status
-        db.merge_settings(job_id, {"related_index": index, "related_total": len(seeds)})
-        db.set_error_message_if_running(
-            job_id,
-            f"Related items: card {index}/{len(seeds)}…",
-        )
-        if await sleep_while_running(job_id, delay_s) != "running":
-            db.merge_settings(job_id, {"pattern_phase": None})
-            return db.get_status(job_id) or "failed"
+        db.merge_settings(job_id, {"related_index": index, "related_total": limit})
+        db.set_error_message_if_running(job_id, f"Related: card {index}/{limit}…")
+        if (halted := await _pace(job_id, delay_s)) is not None:
+            return _leave_related(job_id, halted)
         product_url = seed.get("product_url") or ""
         try:
-            html = await session.get(product_url)
+            html = await session.open_result_card(index, product_url)
             page_url = session.current_url() or product_url
         except Exception:
-            logger.info("job %s skipped related card %s", job_id, product_url)
-            continue
+            logger.info("job %s skipped related card %s", job_id, index)
+            html = None
+            page_url = product_url
         if db.get_status(job_id) != "running":
-            db.merge_settings(job_id, {"pattern_phase": None})
-            return db.get_status(job_id) or "failed"
-        for card in parse_related_cards(html, page_url, skip_asin=seed.get("asin")):
-            payload = card_payload(card, page_url, None, 0)
-            payload["source"] = "related"
-            payload["page_number"] = None
-            try:
-                db.upsert_card(job_id, payload)
-            except ValueError:
-                continue
-        visited += 1
-        db.merge_settings(job_id, {"related_visited": visited})
+            return _leave_related(job_id, db.get_status(job_id) or "failed")
+        if html:
+            for card in parse_related_cards(html, page_url, skip_asin=seed.get("asin")):
+                payload = card_payload(card, page_url, None, 0)
+                payload["source"] = "related"
+                payload["page_number"] = None
+                try:
+                    db.upsert_card(job_id, payload)
+                except ValueError:
+                    continue
+            visited += 1
+            db.merge_settings(job_id, {"related_visited": visited})
+        db.set_error_message_if_running(
+            job_id,
+            f"Related: card {index}/{limit} (back to page 1)…",
+        )
+        if (halted := await _pace(job_id, delay_s)) is not None:
+            return _leave_related(job_id, halted)
+        try:
+            await session.get(page_one)
+        except Exception:
+            logger.info("job %s could not return to results page 1", job_id)
+            if db.get_status(job_id) != "running":
+                return _leave_related(job_id, db.get_status(job_id) or "failed")
     db.merge_settings(job_id, {"pattern_phase": None})
     return db.get_status(job_id) or "failed"
 

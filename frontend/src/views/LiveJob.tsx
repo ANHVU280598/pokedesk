@@ -11,11 +11,11 @@ const ACTIVE = new Set(["queued", "running", "paused"])
 function patternStatus(job: Job): string | null {
   const phase = job.settings.pattern_phase
   const message = job.error_message || ""
-  if (phase === "related" || message.startsWith("Related items:")) {
-    if (message.startsWith("Related items:")) return message
+  if (phase === "related" || message.startsWith("Related:")) {
+    if (message.startsWith("Related:")) return message
     const index = job.settings.related_index ?? 0
-    const total = job.settings.related_total ?? 0
-    return `Related items: card ${index}/${total}… Pause and stop still apply.`
+    const total = job.settings.related_total ?? job.settings.related_cards_limit ?? 0
+    return `Related: card ${index}/${total} (back to page 1)…`
   }
   if (phase === "recheck" || message.startsWith("Rechecking blocked list")) {
     return "Rechecking blocked list…"

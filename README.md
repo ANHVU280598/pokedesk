@@ -97,13 +97,13 @@ Queuing follow-ups marks the parent for that same recheck, which runs after the 
 New scrape and Settings can turn on a pattern that runs only after the primary crawl is blocked:
 
 1. **Primary crawl** reads the start URL or search, up to `max_pages`, and keeps the page where the job became blocked.
-2. **Related-item expansion** (optional) goes back to the earliest stored result cards from this job and opens up to N of them (`related_cards_limit`, 1–20). On each product page it stores related, similar, sponsored, or “customers also viewed” cards when that layout is present, tagged `source=related` on the observation. Missing carousels are skipped. The same delay applies, and pause or stop still works between cards. This collects more catalog rows. It does not scroll, move the mouse, or click around to unlock the next results page.
-3. **Recheck** (on by default) then runs the existing recheck on the blocked list: continue to the next page when that URL can be built, otherwise reload the same results list. The job reports whether more pages were scraped or the list is still capped. Stored cards, including related ones, stay either way.
+2. **Related-item expansion** (optional), still in that same browser, goes back to **page 1** of this search. For each of N cards (`related_cards_limit`): from that page-1 list, open the i-th product card by clicking its link (if the click does not open a product, load the stored product URL), scrape related / similar / customers-also-viewed cards when that layout is present, store them as `source=related`, then load **page 1** again. It does not jump to the blocked deep page between cards. The same delay applies between steps, and pause or stop still works. Missing carousels are skipped. This collects more catalog rows. It does not scroll or click around to unlock pagination.
+3. **Recheck** (on by default) then runs the existing recheck from the blocked pagination point: continue to the next page when that URL can be built, otherwise reload the blocked results list. The job reports whether more pages were scraped or the list is still capped. Stored cards, including related ones, stay either way.
 4. If it is still blocked, the soft-block banner and **Create follow-up jobs** stay available.
 
 Related expansion gathers more products. Recheck probes pagination again. Neither step guarantees Amazon will open more pages.
 
-Those steps stay in the one Playwright browser, context, and page opened for the primary crawl. Each product URL, then the blocked results list, is a `goto` on that page, so cookies, storage, and the job proxy carry across. The pattern does not launch a second browser or a new context per card, and it does not click or scroll to look human. A Recheck you start later from the banner is a new run, after this browser has closed.
+Those steps stay in the one Playwright browser, context, and page opened for the primary crawl. Page 1, each list click, the return to page 1, and the later recheck all use that page, so cookies, storage, and the job proxy carry across. The pattern does not launch a second browser or a new context per card. A Recheck you start later from the banner is a new run, after this browser has closed.
 
 ## Proxy
 

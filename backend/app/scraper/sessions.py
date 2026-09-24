@@ -1,10 +1,11 @@
 """Page fetchers: Playwright for Amazon, local HTML for fixture dry-runs.
 
 A live job opens one Chromium browser, one context, and one page. Primary
-crawl, related-item expansion, and the pattern recheck all navigate that page.
-Cookies, storage, and the job proxy stay on that context. This module does not
-open a second browser or context per card, change the user agent, or click
-around to look human.
+crawl, related-item expansion, and the pattern recheck all use that page.
+Related expansion loads results page 1, clicks each product link in that list,
+then loads page 1 again. Cookies, storage, and the job proxy stay on that
+context. This module does not open a second browser or context per card, and
+it does not scroll or click around to look human.
 """
 
 from __future__ import annotations
@@ -45,6 +46,7 @@ class FixtureSession:
         self.pages = load_bundle(bundle)
         self.related_html = load_related_html()
         self.product_visits: list[str] = []
+        self.card_opens: list[int] = []
         self.url = f"fixture://{bundle}/1"
         self.last_status: int | None = 200
 
@@ -60,6 +62,17 @@ class FixtureSession:
             raise FileNotFoundError(f"No fixture page {number} for {self.bundle}")
         self.last_status = 200
         return html
+
+    async def open_result_card(self, index: int, fallback_url: str) -> str:
+        """Stand in for clicking the 1-based card on the current results page."""
+        self.card_opens.append(index)
+        target = fallback_url or self.url
+        self.url = target
+        if _PRODUCT_URL.search(target or ""):
+            self.product_visits.append(target)
+            self.last_status = 200
+            return self.related_html
+        return await self.get(target)
 
     async def show_more(self) -> str | None:
         number = _page_number(self.url) + 1
@@ -133,6 +146,34 @@ class PlaywrightSession:
             logger.info("page landmark not found at %s", url)
         self._url = self._page.url
         return await self._page.content()
+
+    async def open_result_card(self, index: int, fallback_url: str) -> str:
+        """Click the 1-based result card on this page, or load its URL if that fails.
+
+        The click stays in this browser context. A link target that would open
+        another tab is cleared so the product replaces this page. This is the
+        list → product step, not a random click.
+        """
+        assert self._page is not None
+        if index >= 1:
+            try:
+                card = self._page.locator("[data-component-type='s-search-result']").nth(index - 1)
+                link = card.locator("h2 a[href], a[href*='/dp/'], a[href*='/gp/product/']").first
+                await link.evaluate("(el) => el.removeAttribute('target')")
+                await link.click(timeout=8_000)
+                try:
+                    await self._page.wait_for_selector(_PRODUCT_READY, timeout=8_000)
+                except Exception:
+                    logger.info("product landmark not found after opening card %s", index)
+                self._url = self._page.url
+                if not _PRODUCT_URL.search(self._url or ""):
+                    raise RuntimeError("list click did not open a product page")
+                return await self._page.content()
+            except Exception:
+                logger.info("result card %s was not opened from the list", index)
+        if fallback_url:
+            return await self.get(fallback_url)
+        raise RuntimeError(f"could not open result card {index}")
 
     async def show_more(self) -> str | None:
         assert self._page is not None
