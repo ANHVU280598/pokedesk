@@ -9,7 +9,7 @@ FIXTURE_DIR = Path(__file__).resolve().parents[1] / "fixtures"
 BUNDLES: dict[str, dict[int, str]] = {
     "pokemon": {1: "pokemon_page_1.html", 2: "pokemon_page_2.html"},
     "captcha": {1: "captcha.html"},
-    "pagecap": {1: "page_cap.html"},
+    "pagecap": {1: "page_cap.html", 2: "page_cap_page_2.html"},
     "showmore": {1: "showmore_page_1.html", 2: "showmore_page_2.html"},
 }
 

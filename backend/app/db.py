@@ -7,7 +7,7 @@ import re
 import sqlite3
 import threading
 from contextlib import contextmanager
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 SCHEMA_PATH = Path(__file__).resolve().parent / "schema.sql"
@@ -53,6 +53,8 @@ def _migrate(conn: sqlite3.Connection) -> None:
             "ALTER TABLE scrape_jobs ADD COLUMN parent_job_id INTEGER "
             "REFERENCES scrape_jobs(id) ON DELETE SET NULL"
         )
+    if "queue_at" not in columns:
+        conn.execute("ALTER TABLE scrape_jobs ADD COLUMN queue_at TEXT")
     conn.execute(
         "CREATE INDEX IF NOT EXISTS ix_jobs_parent ON scrape_jobs(parent_job_id)"
     )
@@ -121,8 +123,8 @@ def create_job(
             INSERT INTO scrape_jobs (
               start_url, search_query, search_terms, status, pagination_mode,
               pages_visited, items_scraped, settings_json, created_at, updated_at,
-              parent_job_id
-            ) VALUES (?, ?, ?, 'queued', 'unknown', 0, 0, ?, ?, ?, ?)
+              parent_job_id, queue_at
+            ) VALUES (?, ?, ?, 'queued', 'unknown', 0, 0, ?, ?, ?, ?, ?)
             """,
             (
                 start_url,
@@ -132,6 +134,7 @@ def create_job(
                 now,
                 now,
                 parent_job_id,
+                now,
             ),
         )
         row = _get(conn, int(cur.lastrowid))
@@ -174,7 +177,7 @@ def claim_next_queued() -> int | None:
             """
             SELECT id FROM scrape_jobs
             WHERE status = 'queued'
-            ORDER BY created_at ASC, id ASC
+            ORDER BY COALESCE(queue_at, created_at) ASC, id ASC
             LIMIT 1
             """
         ).fetchone()
@@ -339,6 +342,77 @@ def queue_retry(job_id: int, wait_sec: float) -> dict:
         updated = _get(conn, job_id)
         assert updated is not None
         return _job_dict(updated)
+
+
+def queue_recheck(job_id: int, patch: dict, wait_sec: float) -> dict:
+    """Queue a blocked job to reload its results list or the next page."""
+    now = utcnow()
+    with _tx() as conn:
+        row = _get(conn, job_id)
+        if row is None:
+            raise LookupError(job_id)
+        if row["status"] != "blocked":
+            raise JobStateError("Only a blocked job can be rechecked")
+        settings = _settings(row)
+        settings.update(patch)
+        settings["retry_wait_sec"] = wait_sec
+        settings["recheck_pending"] = False
+        settings["block_acknowledged"] = False
+        conn.execute(
+            """
+            UPDATE scrape_jobs
+            SET status = 'queued',
+                finished_at = NULL,
+                error_message = ?,
+                settings_json = ?,
+                queue_at = ?,
+                updated_at = ?
+            WHERE id = ? AND status = 'blocked'
+            """,
+            (
+                "Rechecking this results list for another page.",
+                json.dumps(settings),
+                _queue_after_open_work(conn),
+                now,
+                job_id,
+            ),
+        )
+        updated = _get(conn, job_id)
+        assert updated is not None
+        return _job_dict(updated)
+
+
+def mark_recheck_pending(job_id: int) -> None:
+    merge_settings(job_id, {"recheck_pending": True})
+
+
+def open_child_count(parent_id: int) -> int:
+    with _tx() as conn:
+        row = conn.execute(
+            """
+            SELECT COUNT(*) AS n FROM scrape_jobs
+            WHERE parent_job_id = ? AND status IN ('queued', 'running', 'paused')
+            """,
+            (parent_id,),
+        ).fetchone()
+        return int(row["n"])
+
+
+def _queue_after_open_work(conn: sqlite3.Connection) -> str:
+    """Sort a recheck behind jobs that are already queued."""
+    row = conn.execute(
+        """
+        SELECT MAX(COALESCE(queue_at, created_at)) AS latest
+        FROM scrape_jobs
+        WHERE status = 'queued'
+        """
+    ).fetchone()
+    latest = row["latest"] if row else None
+    now = utcnow()
+    if not latest or latest < now:
+        return now
+    base = datetime.fromisoformat(latest)
+    return (base + timedelta(seconds=1)).replace(microsecond=0).isoformat()
 
 
 def merge_settings(job_id: int, patch: dict) -> None:

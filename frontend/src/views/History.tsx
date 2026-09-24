@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react"
 import { Button } from "@/components/ui/button"
 import { ApiError, createJob, listJobs } from "../api"
-import { FollowUpButton } from "../components/FollowUps"
+import { FollowUpButton, RecheckButton } from "../components/FollowUps"
 import { StatusChip } from "../components/StatusChip"
 import { formatWhen, jobMode, sourceLabel } from "../format"
 import type { Job } from "../types"
@@ -99,11 +99,20 @@ export function History({
                   </td>
                   <td className="px-3 py-2">
                     <StatusChip job={job} />
+                    {job.settings.recheck_outcome === "advanced" ? (
+                      <div className="mt-1 text-xs text-muted-foreground">More pages found on recheck</div>
+                    ) : null}
+                    {job.settings.recheck_outcome === "unchanged" ? (
+                      <div className="mt-1 text-xs text-muted-foreground">Still capped — try another slice</div>
+                    ) : null}
+                    {job.settings.recheck_pending ? (
+                      <div className="mt-1 text-xs text-muted-foreground">Recheck after follow-ups</div>
+                    ) : null}
                   </td>
                   <td className="px-3 py-2">{job.pages_visited}</td>
                   <td className="px-3 py-2">{job.items_scraped}</td>
                   <td className="px-3 py-2">
-                    <div className="flex gap-2">
+                    <div className="flex flex-wrap gap-2">
                       <Button size="sm" variant="outline" onClick={() => onView(job.id)}>
                         View
                       </Button>
@@ -111,7 +120,10 @@ export function History({
                         {busyId === job.id ? "Starting…" : "Re-run"}
                       </Button>
                       {job.status === "blocked" ? (
-                        <FollowUpButton jobId={job.id} onQueued={onStarted} />
+                        <>
+                          <FollowUpButton jobId={job.id} onQueued={onStarted} />
+                          <RecheckButton jobId={job.id} onQueued={onStarted} />
+                        </>
                       ) : null}
                     </div>
                   </td>

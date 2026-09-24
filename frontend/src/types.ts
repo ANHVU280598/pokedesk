@@ -30,6 +30,11 @@ export type JobSettings = {
   proxy_username?: string
   proxy_password?: string
   proxy_password_set?: boolean
+  recheck_mode?: string | null
+  recheck_outcome?: "advanced" | "unchanged" | null
+  recheck_pending?: boolean
+  recheck_pages_before?: number
+  recheck_items_before?: number
 }
 
 export type Job = {
@@ -130,7 +135,7 @@ export type ProxyMode = "default" | "off" | "custom"
 
 export type FollowUpSuggestion = {
   id: string
-  kind: "price" | "sort"
+  kind: "price" | "sort" | "query"
   label: string
   detail: string
   start_url: string

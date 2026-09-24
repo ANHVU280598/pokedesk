@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from "react"
 import { Button } from "@/components/ui/button"
 import { ApiError, getJob, listJobs, listObservations, pauseJob, resumeJob, retryJob, stopJob } from "../api"
-import { FollowUpButton } from "../components/FollowUps"
+import { FollowUpButton, RecheckButton } from "../components/FollowUps"
 import { StatusChip } from "../components/StatusChip"
 import { formatMoney, paginationLabel } from "../format"
 import type { Job, Observation } from "../types"
@@ -131,6 +131,14 @@ export function LiveJob({
         <div className="mb-5 rounded-lg border border-amber-300 bg-amber-50 px-4 py-3 text-amber-950">
           <p className="font-medium">Amazon capped or blocked this session</p>
           <p className="mt-1 text-sm">{job.error_message}</p>
+          {job.settings.recheck_pending ? (
+            <p className="mt-2 text-sm">
+              Follow-up jobs are queued. This results list is rechecked when they finish.
+            </p>
+          ) : null}
+          {job.settings.recheck_outcome === "unchanged" ? (
+            <p className="mt-2 text-sm">Still no extra page. Another slice round is the way to cover more of the catalog.</p>
+          ) : null}
           <div className="mt-3 flex flex-wrap gap-2">
             {!job.settings.block_acknowledged ? (
               <>
@@ -153,7 +161,11 @@ export function LiveJob({
               Open results
             </Button>
             <FollowUpButton jobId={job.id} onQueued={onAdopt} />
+            <RecheckButton jobId={job.id} onQueued={onAdopt} />
           </div>
+          <p className="mt-2 text-xs text-amber-900/80">
+            Recheck reloads this results list, or opens the next page when that URL can be built. It does not click around the site.
+          </p>
         </div>
       ) : null}
 

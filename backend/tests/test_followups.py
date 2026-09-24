@@ -55,6 +55,33 @@ def test_suggestions_skip_the_parents_own_slice():
     assert "price-asc-rank" not in ideas["sort:featured"]["start_url"]
 
 
+def test_narrower_pokemon_queries_skip_the_current_keyword():
+    broad = {
+        "id": 1,
+        "status": "blocked",
+        "start_url": "fixture://captcha/1",
+        "search_query": "Pokemon cards",
+        "search_terms": "pokemon cards",
+        "settings": {"department": "all", "mode": "fixture"},
+    }
+    ids = {item["id"] for item in suggest(broad)}
+    assert "query:booster-box" in ids
+    assert "query:charizard" in ids
+
+    narrow = dict(broad, search_query="pokemon booster box")
+    narrow_ids = {item["id"] for item in suggest(narrow)}
+    assert "query:booster-box" not in narrow_ids
+    assert "query:tin" in narrow_ids
+
+    other = dict(
+        broad,
+        search_query="lego castle",
+        search_terms="lego",
+        start_url="https://www.amazon.com/s?k=lego+castle",
+    )
+    assert not any(item["kind"] == "query" for item in suggest(other))
+
+
 def test_followup_jobs_link_to_a_blocked_parent(client):
     blocked = _wait(
         client,

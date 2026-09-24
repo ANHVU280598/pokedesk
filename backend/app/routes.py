@@ -5,8 +5,8 @@ from __future__ import annotations
 from fastapi import APIRouter, HTTPException, Request
 
 from app import db, followups, settings_store
-from app.schemas import FollowUpCreate, JobCreate, ProductMerge, ProductUpdate, SettingsUpdate
-from app.service import clean_settings, compose_new_job, retry_wait_seconds
+from app.schemas import FollowUpCreate, JobCreate, ProductMerge, ProductUpdate, RecheckBody, SettingsUpdate
+from app.service import clean_settings, compose_new_job, recheck_patch, retry_wait_seconds
 
 router = APIRouter(prefix="/api")
 
@@ -93,6 +93,23 @@ async def retry_job(job_id: int, request: Request) -> dict:
     return _public_job(queued)
 
 
+@router.post("/jobs/{job_id}/recheck")
+async def recheck_job(job_id: int, request: Request, body: RecheckBody | None = None) -> dict:
+    job = db.get_job(job_id)
+    if job is None:
+        raise HTTPException(404, "Job not found")
+    if job["status"] != "blocked":
+        raise HTTPException(409, "Only a blocked job can be rechecked")
+    mode = body.mode if body is not None else "continue"
+    try:
+        patch = recheck_patch(job, mode)
+    except ValueError as exc:
+        raise HTTPException(400, str(exc)) from exc
+    queued = _run(lambda: db.queue_recheck(job_id, patch, retry_wait_seconds(job["settings"])))
+    request.app.state.runner.notify()
+    return _public_job(queued)
+
+
 @router.get("/jobs/{job_id}/observations")
 async def list_observations(
     job_id: int,
@@ -142,8 +159,13 @@ async def create_followups(job_id: int, body: FollowUpCreate, request: Request) 
         status = 409 if "blocked" in str(exc) else 400
         raise HTTPException(status, str(exc)) from exc
     created = [db.create_job(**spec) for spec in specs]
+    db.mark_recheck_pending(job_id)
+    parent = db.get_job(job_id)
     request.app.state.runner.notify()
-    return {"jobs": [_public_job(item) for item in created]}
+    return {
+        "jobs": [_public_job(item) for item in created],
+        "parent": None if parent is None else _public_job(parent),
+    }
 
 
 @router.delete("/jobs/{job_id}")

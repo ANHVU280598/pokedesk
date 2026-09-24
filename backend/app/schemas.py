@@ -40,6 +40,10 @@ class FollowUpCreate(BaseModel):
     suggestion_ids: list[str] = Field(min_length=1)
 
 
+class RecheckBody(BaseModel):
+    mode: Literal["continue", "reload"] = "continue"
+
+
 class ProductUpdate(BaseModel):
     title: str = Field(min_length=1, max_length=500)
     asin: str | None = None

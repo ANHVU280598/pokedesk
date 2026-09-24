@@ -84,9 +84,13 @@ Live Amazon scrapes require a delay of at least 1 second and at most 20 pages. D
 
 ## Follow-up jobs
 
-When a job ends as `blocked`, Live job and History offer **Create follow-up jobs**. Suggestions slice the original search by price (under $25, $25–$50, $50–$100, $100+) or by an Amazon sort (featured, price low to high, newest). Each selected suggestion becomes a new `scrape_job` with `parent_job_id` set and `search_terms` noting the follow-up. They do not continue pagination on the blocked URL, and they do not try to evade the check.
+When a job ends as `blocked`, Live job and History offer **Create follow-up jobs**. Suggestions slice the original search by price (under $25, $25–$50, $50–$100, $100+), by an Amazon sort (featured, price low to high, newest), or — for a Pokemon search — by a narrower keyword such as booster box, tin, or Charizard. Each selected suggestion becomes a new `scrape_job` with `parent_job_id` set and `search_terms` noting the follow-up. They do not continue pagination on the blocked URL, and they do not try to evade the check.
 
 A blocked dry-run still suggests live Amazon searches built from that job’s keyword.
+
+**Recheck for more pages** puts the blocked job back in the queue. It opens the next results page when that URL can be built from the page it stopped on (including the next saved fixture page). Otherwise it reloads the same results list and looks again for a next page or Show more. The job then says whether more pages were scraped or the list is still capped. Stored cards are kept either way. If it is still capped, run another round of slices.
+
+Queuing follow-ups marks the parent for that same recheck, which runs after the follow-ups finish. **Wait & retry** is still the short pause-and-reload for a robot check. Recheck does not click products, scroll, or pretend to browse.
 
 ## Proxy
 
@@ -142,7 +146,8 @@ MVP choices baked in:
 | POST | `/api/jobs/{id}/pause` | Pause a running job |
 | POST | `/api/jobs/{id}/resume` | Resume a paused job |
 | POST | `/api/jobs/{id}/stop` | Stop and keep results, or acknowledge a block |
-| POST | `/api/jobs/{id}/retry` | Wait, then retry a blocked job |
+| POST | `/api/jobs/{id}/retry` | Wait, then retry a blocked job on the same page |
+| POST | `/api/jobs/{id}/recheck` | Continue to the next page, or reload the results list (`mode`: `continue` or `reload`) |
 | GET | `/api/jobs/{id}/follow-ups` | Suggested price and sort slices for a blocked job |
 | POST | `/api/jobs/{id}/follow-ups` | Queue selected follow-ups (`suggestion_ids`) |
 | DELETE | `/api/jobs/{id}` | Delete a finished job, its observations, and its snapshots |

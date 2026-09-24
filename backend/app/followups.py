@@ -7,6 +7,9 @@ browser behaves.
 
 from __future__ import annotations
 
+import re
+from urllib.parse import parse_qsl, urlparse
+
 from app.scraper.urls import (
     apply_slice,
     build_search_url,
@@ -27,6 +30,17 @@ SORTS = (
     ("price-asc", "Price: low to high", "price-asc-rank"),
     ("newest", "Newest arrivals", "date-desc-rank"),
 )
+
+POKEMON_QUERIES = (
+    ("booster-box", "Booster boxes", "pokemon booster box"),
+    ("etb", "Elite Trainer Boxes", "pokemon elite trainer box"),
+    ("tin", "Tins", "pokemon tin"),
+    ("booster-pack", "Booster packs", "pokemon booster pack"),
+    ("collection", "Collection boxes", "pokemon collection box"),
+    ("charizard", "Charizard", "charizard pokemon card"),
+)
+
+_QUERY_STOPWORDS = {"pokemon", "pokémon", "card", "cards", "a", "the"}
 
 
 def suggest(job: dict) -> list[dict]:
@@ -74,6 +88,28 @@ def suggest(job: dict) -> list[dict]:
                 sort=sort_value,
             )
         )
+    parent_query = _parent_query(job)
+    if _pokemonish(job, parent_query):
+        department = (job.get("settings") or {}).get("department") or "all"
+        for query_id, label, keyword in POKEMON_QUERIES:
+            if _query_already_used(parent_query, keyword):
+                continue
+            url = build_search_url(keyword, parent_min, parent_max, department)
+            if parent_sort and parent_sort != "relevancerank":
+                url = apply_slice(url, parent_min, parent_max, parent_sort)
+            ideas.append(
+                _idea(
+                    suggestion_id=f"query:{query_id}",
+                    kind="query",
+                    label=f"Search: {label}",
+                    detail=f"Narrower keyword “{keyword}”, so pagination starts on a smaller catalog.",
+                    url=url,
+                    min_price=parent_min,
+                    max_price=parent_max,
+                    sort=parent_sort,
+                    query=keyword,
+                )
+            )
     return ideas
 
 
@@ -93,7 +129,8 @@ def materialize(job: dict, suggestion_ids: list[str], defaults: dict) -> list[di
     created: list[dict] = []
     base_terms = (job.get("search_terms") or job.get("search_query") or "follow-up").strip()
     for idea in wanted:
-        mode = "search" if (job.get("search_query") or "").strip() else "url"
+        search_query = idea.get("query") or job.get("search_query")
+        mode = "search" if (search_query or "").strip() else "url"
         settings = {
             "max_pages": int(parent_settings.get("max_pages") or defaults.get("max_pages") or 3),
             "delay_ms": int(parent_settings.get("delay_ms") or int(float(defaults.get("delay_sec") or 2.5) * 1000)),
@@ -112,7 +149,7 @@ def materialize(job: dict, suggestion_ids: list[str], defaults: dict) -> list[di
         created.append(
             {
                 "start_url": idea["start_url"],
-                "search_query": job.get("search_query"),
+                "search_query": search_query,
                 "search_terms": f"{base_terms}|follow-up|{idea['id']}|parent:{job['id']}",
                 "settings": settings,
                 "parent_job_id": job["id"],
@@ -131,6 +168,7 @@ def _idea(
     min_price: float | None,
     max_price: float | None,
     sort: str,
+    query: str | None = None,
 ) -> dict:
     return {
         "id": suggestion_id,
@@ -141,6 +179,7 @@ def _idea(
         "min_price": min_price,
         "max_price": max_price,
         "sort": sort,
+        "query": query,
     }
 
 
@@ -242,6 +281,39 @@ def _proxy_for_followup(parent_settings: dict, defaults: dict) -> dict:
             "proxy_password": parent_settings.get("proxy_password") or "",
         }
     return _proxy_off()
+
+
+def _parent_query(job: dict) -> str:
+    query = (job.get("search_query") or "").strip()
+    if query:
+        return query
+    start = job.get("start_url") or ""
+    if start.startswith("http://") or start.startswith("https://"):
+        for key, value in parse_qsl(urlparse(start).query, keep_blank_values=True):
+            if key == "k" and value.strip():
+                return value.strip()
+    return ""
+
+
+def _pokemonish(job: dict, query: str) -> bool:
+    blob = " ".join(
+        [
+            query,
+            job.get("search_terms") or "",
+            job.get("start_url") or "",
+        ]
+    ).lower()
+    return "pokemon" in blob or "pokémon" in blob or "charizard" in blob
+
+
+def _query_already_used(parent: str, narrow: str) -> bool:
+    parent_words = set(re.sub(r"[^a-z0-9]+", " ", parent.lower()).split())
+    narrow_words = [
+        word
+        for word in re.sub(r"[^a-z0-9]+", " ", narrow.lower()).split()
+        if word not in _QUERY_STOPWORDS
+    ]
+    return bool(narrow_words) and all(word in parent_words for word in narrow_words)
 
 
 def _proxy_off() -> dict:

@@ -77,6 +77,14 @@ def price_bounds_from_url(url: str) -> tuple[float | None, float | None] | None:
     return None
 
 
+def with_page(url: str, page: int) -> str:
+    """Point a results URL at a page number. Does not change how the page is fetched."""
+    parsed = urlparse(url)
+    pairs = [(key, value) for key, value in parse_qsl(parsed.query, keep_blank_values=True) if key != "page"]
+    pairs.append(("page", str(page)))
+    return urlunparse(parsed._replace(query=urlencode(pairs)))
+
+
 def sort_from_url(url: str) -> str:
     parsed = urlparse(url or "")
     for key, value in parse_qsl(parsed.query, keep_blank_values=True):

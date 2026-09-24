@@ -137,9 +137,16 @@ export function listFollowUps(jobId: number) {
 }
 
 export function createFollowUps(jobId: number, suggestionIds: string[]) {
-  return api<{ jobs: Job[] }>(`/api/jobs/${jobId}/follow-ups`, {
+  return api<{ jobs: Job[]; parent: Job | null }>(`/api/jobs/${jobId}/follow-ups`, {
     method: "POST",
     body: JSON.stringify({ suggestion_ids: suggestionIds }),
+  })
+}
+
+export function recheckJob(id: number, mode: "continue" | "reload" = "continue") {
+  return api<Job>(`/api/jobs/${id}/recheck`, {
+    method: "POST",
+    body: JSON.stringify({ mode }),
   })
 }
 

@@ -7,7 +7,7 @@ import {
   SheetHeader,
   SheetTitle,
 } from "@/components/ui/sheet"
-import { ApiError, createFollowUps, listFollowUps } from "../api"
+import { ApiError, createFollowUps, listFollowUps, recheckJob } from "../api"
 import type { FollowUpSuggestion } from "../types"
 
 export function FollowUpButton({
@@ -79,7 +79,7 @@ export function FollowUpButton({
           <SheetHeader>
             <SheetTitle>Follow-up jobs</SheetTitle>
             <SheetDescription>
-              These slice the same search by price or sort so pagination starts over. They do not walk further down the blocked URL, and they do not try to get around Amazon’s check.
+              These slice the same search by price, sort, or a narrower Pokemon keyword so pagination starts over. After they finish, the blocked job is rechecked for another page. Nothing here tries to get around Amazon’s check.
             </SheetDescription>
           </SheetHeader>
           <div className="space-y-3 px-4 pb-6">
@@ -120,5 +120,38 @@ export function FollowUpButton({
         </SheetContent>
       </Sheet>
     </>
+  )
+}
+
+export function RecheckButton({
+  jobId,
+  onQueued,
+}: {
+  jobId: number
+  onQueued: (jobId: number) => void
+}) {
+  const [pending, setPending] = useState(false)
+  const [error, setError] = useState<string | null>(null)
+
+  async function recheck() {
+    setPending(true)
+    setError(null)
+    try {
+      const job = await recheckJob(jobId, "continue")
+      onQueued(job.id)
+    } catch (err) {
+      setError(err instanceof ApiError ? err.message : "Could not recheck this job.")
+    } finally {
+      setPending(false)
+    }
+  }
+
+  return (
+    <span className="inline-flex flex-col items-start gap-1">
+      <Button size="sm" variant="outline" disabled={pending} onClick={() => void recheck()}>
+        {pending ? "Queuing recheck…" : "Recheck for more pages"}
+      </Button>
+      {error ? <span className="text-xs text-rose-800">{error}</span> : null}
+    </span>
   )
 }

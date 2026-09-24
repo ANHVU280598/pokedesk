@@ -4,7 +4,8 @@ from __future__ import annotations
 
 from urllib.parse import urlparse
 
-from app.scraper.urls import DEPARTMENTS, build_search_url, validate_amazon_url
+from app.scraper.fixtures import BUNDLES
+from app.scraper.urls import DEPARTMENTS, build_search_url, validate_amazon_url, with_page
 from app.schemas import JobCreate, SettingsUpdate
 
 FIXTURE_SETS = {"pokemon", "captcha", "pagecap", "showmore"}
@@ -187,3 +188,86 @@ def retry_wait_seconds(settings: dict) -> float:
         return 0
     delay = float(settings.get("delay_ms") or 0) / 1000
     return max(8.0, delay)
+
+
+def recheck_patch(job: dict, mode: str) -> dict:
+    """Where a blocked job should open next.
+
+    `continue` asks for the next results page when that URL can be built.
+    Otherwise, and for `reload`, it opens the same results list again.
+    """
+    settings = job.get("settings") or {}
+    pages = int(job.get("pages_visited") or 0)
+    start = (job.get("start_url") or "").strip()
+    resume = (settings.get("resume_url") or start).strip()
+    chosen = "reload"
+    target = start or resume
+    next_number = 1 if start else max(pages, 1)
+    if mode == "continue":
+        continued = _continue_url(job, resume or start, pages)
+        if continued:
+            chosen = "continue"
+            target = continued
+            next_number = pages + 1
+        else:
+            target = resume or start
+            next_number = max(pages, 1)
+    return {
+        "resume_url": target,
+        "next_page_number": next_number,
+        "recheck_mode": chosen,
+        "recheck_pages_before": pages,
+        "recheck_items_before": int(job.get("items_scraped") or 0),
+        "recheck_outcome": None,
+        "recheck_pending": False,
+        "block_acknowledged": False,
+    }
+
+
+def recheck_result_message(
+    *,
+    advanced: bool,
+    blocked: bool,
+    pages: int,
+    base: str | None,
+) -> tuple[str, str]:
+    extra = f" {base}" if base else ""
+    if advanced and not blocked:
+        return (
+            f"More pages were available. Recheck scraped through page {pages}. Earlier results were kept.",
+            "advanced",
+        )
+    if advanced and blocked:
+        return (
+            "More pages were available "
+            f"(through page {pages}), then the list stopped again. "
+            f"Stored results were kept.{extra} Try another round of follow-up slices.",
+            "advanced",
+        )
+    if base and "capped" in base.lower():
+        lead = "Still capped after a fresh load of this results list."
+    else:
+        lead = "No extra page was available after reloading this results list."
+    return (
+        f"{lead} Stored results were kept.{extra} Try another round of follow-up slices.",
+        "unchanged",
+    )
+
+
+def _continue_url(job: dict, url: str, pages: int) -> str | None:
+    if url.startswith("fixture:"):
+        bundle = (job.get("settings") or {}).get("fixture_set") or _fixture_bundle(url)
+        nxt = pages + 1
+        if bundle and nxt in BUNDLES.get(bundle, {}):
+            return f"fixture://{bundle}/{nxt}"
+        return None
+    if url.startswith("http://") or url.startswith("https://"):
+        return with_page(url, pages + 1)
+    return None
+
+
+def _fixture_bundle(url: str) -> str | None:
+    # fixture://pagecap/1
+    body = url[len("fixture://") :]
+    name = body.split("/", 1)[0]
+    return name or None
