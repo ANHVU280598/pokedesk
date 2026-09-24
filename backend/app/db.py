@@ -806,9 +806,13 @@ def list_observations(
                    o.bought_past_month_text, o.badges_json,
                    o.availability_snippet, o.seller, o.observed_at, o.page_number,
                    o.source,
-                   p.asin, p.title, p.image_url, p.product_url, p.category_breadcrumbs
+                   p.asin, p.title, p.image_url, p.product_url, p.category_breadcrumbs,
+                   m.status AS tcg_status, m.tcg_url, m.tcg_name, m.tcg_set,
+                   m.price AS tcg_price, m.currency AS tcg_currency,
+                   m.confidence AS tcg_confidence, m.query AS tcg_query
             FROM scrape_observations o
             JOIN products p ON p.id = o.product_id
+            LEFT JOIN tcgplayer_matches m ON m.product_id = p.id
             WHERE {clause}
             ORDER BY {order}
             LIMIT ? OFFSET ?
@@ -841,6 +845,10 @@ def get_product(product_id: int) -> dict | None:
             """,
             (product_id,),
         ).fetchall()
+        match = conn.execute(
+            "SELECT * FROM tcgplayer_matches WHERE product_id = ?",
+            (product_id,),
+        ).fetchone()
     product = dict(row)
     history = []
     for obs in observations:
@@ -848,7 +856,234 @@ def get_product(product_id: int) -> dict | None:
         item["badges"] = _badges(item.pop("badges_json"))
         history.append(item)
     product["observations"] = history
+    product.update(_match_public(match))
     return product
+
+
+def _match_public(row: sqlite3.Row | None) -> dict:
+    if row is None:
+        return {
+            "tcg_status": None,
+            "tcg_url": None,
+            "tcg_name": None,
+            "tcg_set": None,
+            "tcg_price": None,
+            "tcg_currency": None,
+            "tcg_confidence": None,
+            "tcg_query": None,
+        }
+    return {
+        "tcg_status": row["status"],
+        "tcg_url": row["tcg_url"],
+        "tcg_name": row["tcg_name"],
+        "tcg_set": row["tcg_set"],
+        "tcg_price": row["price"],
+        "tcg_currency": row["currency"],
+        "tcg_confidence": row["confidence"],
+        "tcg_query": row["query"],
+    }
+
+
+def list_match_products(job_id: int) -> list[dict]:
+    with _tx() as conn:
+        rows = conn.execute(
+            """
+            SELECT p.id, p.title
+            FROM scrape_observations o
+            JOIN products p ON p.id = o.product_id
+            WHERE o.job_id = ?
+            GROUP BY p.id
+            ORDER BY MIN(o.id)
+            """,
+            (job_id,),
+        ).fetchall()
+    return [dict(row) for row in rows]
+
+
+def list_products_by_ids(product_ids: list[int]) -> list[dict]:
+    unique: list[int] = []
+    seen: set[int] = set()
+    for raw in product_ids:
+        pid = int(raw)
+        if pid in seen:
+            continue
+        seen.add(pid)
+        unique.append(pid)
+    if not unique:
+        return []
+    placeholders = ",".join("?" * len(unique))
+    with _tx() as conn:
+        rows = conn.execute(
+            f"SELECT id, title FROM products WHERE id IN ({placeholders})",
+            unique,
+        ).fetchall()
+    by_id = {int(row["id"]): dict(row) for row in rows}
+    return [by_id[pid] for pid in unique if pid in by_id]
+
+
+def products_are_fixture_only(product_ids: list[int]) -> bool:
+    ids = list(dict.fromkeys(int(pid) for pid in product_ids))
+    if not ids:
+        return False
+    placeholders = ",".join("?" * len(ids))
+    with _tx() as conn:
+        rows = conn.execute(
+            f"""
+            SELECT o.product_id, j.settings_json
+            FROM scrape_observations o
+            JOIN scrape_jobs j ON j.id = o.job_id
+            WHERE o.product_id IN ({placeholders})
+            """,
+            ids,
+        ).fetchall()
+    modes: dict[int, set[str]] = {pid: set() for pid in ids}
+    for row in rows:
+        try:
+            settings = json.loads(row["settings_json"] or "{}")
+        except json.JSONDecodeError:
+            settings = {}
+        modes[int(row["product_id"])].add(str((settings or {}).get("mode") or ""))
+    return all(modes[pid] == {"fixture"} for pid in ids)
+
+
+def upsert_tcg_match(
+    *,
+    product_id: int,
+    job_id: int,
+    query: str,
+    status: str,
+    tcg_url: str | None,
+    tcg_name: str | None,
+    tcg_set: str | None,
+    price: float | None,
+    currency: str | None,
+    confidence: float | None,
+    raw: dict | None,
+) -> None:
+    now = utcnow()
+    with _tx() as conn:
+        conn.execute(
+            """
+            INSERT INTO tcgplayer_matches (
+              product_id, job_id, query, status, tcg_url, tcg_name, tcg_set,
+              price, currency, confidence, raw_json, matched_at
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            ON CONFLICT(product_id) DO UPDATE SET
+              job_id = excluded.job_id,
+              query = excluded.query,
+              status = excluded.status,
+              tcg_url = excluded.tcg_url,
+              tcg_name = excluded.tcg_name,
+              tcg_set = excluded.tcg_set,
+              price = excluded.price,
+              currency = excluded.currency,
+              confidence = excluded.confidence,
+              raw_json = excluded.raw_json,
+              matched_at = excluded.matched_at
+            """,
+            (
+                product_id,
+                job_id,
+                query,
+                status,
+                tcg_url,
+                tcg_name,
+                tcg_set,
+                price,
+                currency,
+                confidence,
+                json.dumps(raw or {}),
+                now,
+            ),
+        )
+
+
+def clear_tcg_match(product_id: int) -> None:
+    with _tx() as conn:
+        row = conn.execute("SELECT id FROM products WHERE id = ?", (product_id,)).fetchone()
+        if row is None:
+            raise LookupError(product_id)
+        conn.execute("DELETE FROM tcgplayer_matches WHERE product_id = ?", (product_id,))
+
+
+def clear_tcg_matches_for_job(job_id: int) -> int:
+    with _tx() as conn:
+        cur = conn.execute(
+            """
+            DELETE FROM tcgplayer_matches
+            WHERE product_id IN (
+              SELECT product_id FROM scrape_observations WHERE job_id = ?
+            )
+            """,
+            (job_id,),
+        )
+        return int(cur.rowcount)
+
+
+def note_match_progress(job_id: int, checked: int, message: str) -> bool:
+    now = utcnow()
+    with _tx() as conn:
+        cur = conn.execute(
+            """
+            UPDATE scrape_jobs
+            SET pages_visited = ?, error_message = ?, updated_at = ?
+            WHERE id = ? AND status = 'running'
+            """,
+            (checked, message, now, job_id),
+        )
+        return cur.rowcount > 0
+
+
+def complete_match_job(job_id: int, *, checked: int, message: str) -> bool:
+    now = utcnow()
+    with _tx() as conn:
+        cur = conn.execute(
+            """
+            UPDATE scrape_jobs
+            SET status = 'completed',
+                pages_visited = ?,
+                items_scraped = ?,
+                error_message = ?,
+                finished_at = ?,
+                updated_at = ?
+            WHERE id = ? AND status = 'running'
+            """,
+            (checked, checked, message, now, now, job_id),
+        )
+        return cur.rowcount > 0
+
+
+def block_match_job(job_id: int, *, checked: int, message: str) -> bool:
+    now = utcnow()
+    with _tx() as conn:
+        row = _get(conn, job_id)
+        if row is None or row["status"] not in {"running", "paused"}:
+            return False
+        settings = _settings(row)
+        settings["block_acknowledged"] = False
+        conn.execute(
+            """
+            UPDATE scrape_jobs
+            SET status = 'blocked',
+                pages_visited = ?,
+                items_scraped = ?,
+                error_message = ?,
+                finished_at = ?,
+                settings_json = ?,
+                updated_at = ?
+            WHERE id = ? AND status IN ('running', 'paused')
+            """,
+            (
+                checked,
+                checked,
+                message,
+                now,
+                json.dumps(settings),
+                now,
+                job_id,
+            ),
+        )
+        return True
 
 
 def list_result_cards(job_id: int, limit: int) -> list[dict]:
@@ -933,6 +1168,14 @@ def _product_brief(row: sqlite3.Row, observation_count: int) -> dict:
         "observation_count": observation_count,
         "bought_past_month": row["bought_past_month"],
         "bought_past_month_text": row["bought_past_month_text"],
+        "tcg_status": row["tcg_status"],
+        "tcg_url": row["tcg_url"],
+        "tcg_name": row["tcg_name"],
+        "tcg_set": row["tcg_set"],
+        "tcg_price": row["tcg_price"],
+        "tcg_currency": row["tcg_currency"],
+        "tcg_confidence": row["tcg_confidence"],
+        "tcg_query": row["tcg_query"],
     }
 
 
@@ -988,8 +1231,17 @@ def list_products(
                      WHERE o.product_id = p.id
                      ORDER BY o.observed_at DESC, o.id DESC
                      LIMIT 1
-                   ) AS bought_past_month_text
+                   ) AS bought_past_month_text,
+                   tcg.status AS tcg_status,
+                   tcg.tcg_url AS tcg_url,
+                   tcg.tcg_name AS tcg_name,
+                   tcg.tcg_set AS tcg_set,
+                   tcg.price AS tcg_price,
+                   tcg.currency AS tcg_currency,
+                   tcg.confidence AS tcg_confidence,
+                   tcg.query AS tcg_query
             FROM products p
+            LEFT JOIN tcgplayer_matches tcg ON tcg.product_id = p.id
             WHERE {clause}
             ORDER BY last_seen_at DESC, id DESC
             LIMIT ? OFFSET ?
@@ -1177,6 +1429,15 @@ def merge_products(keep_id: int, drop_id: int) -> dict:
                 keep_id,
             ),
         )
+        keep_match = conn.execute(
+            "SELECT 1 FROM tcgplayer_matches WHERE product_id = ?",
+            (keep_id,),
+        ).fetchone()
+        if keep_match is None:
+            conn.execute(
+                "UPDATE tcgplayer_matches SET product_id = ? WHERE product_id = ?",
+                (keep_id, drop_id),
+            )
         conn.execute("DELETE FROM products WHERE id = ?", (drop_id,))
         for job_id in affected:
             _recount_job(conn, job_id)

@@ -8,7 +8,7 @@ export type JobStatus =
 
 export type PaginationMode = "next_page" | "show_more" | "unknown"
 
-export type JobMode = "url" | "search" | "fixture"
+export type JobMode = "url" | "search" | "fixture" | "tcgplayer"
 
 export type JobSettings = {
   max_pages: number
@@ -43,6 +43,9 @@ export type JobSettings = {
   recheck_pending?: boolean
   recheck_pages_before?: number
   recheck_items_before?: number
+  fixture?: boolean
+  source_job_id?: number | null
+  product_ids?: number[]
 }
 
 export type Job = {
@@ -85,6 +88,14 @@ export type Observation = {
   page_number: number | null
   observed_at: string
   source?: "results" | "related"
+  tcg_status?: string | null
+  tcg_url?: string | null
+  tcg_name?: string | null
+  tcg_set?: string | null
+  tcg_price?: number | null
+  tcg_currency?: string | null
+  tcg_confidence?: number | null
+  tcg_query?: string | null
 }
 
 export type ObservationPage = {
@@ -120,6 +131,14 @@ export type Product = {
   first_seen_at: string
   last_seen_at: string
   observations: ProductObservation[]
+  tcg_status?: string | null
+  tcg_url?: string | null
+  tcg_name?: string | null
+  tcg_set?: string | null
+  tcg_price?: number | null
+  tcg_currency?: string | null
+  tcg_confidence?: number | null
+  tcg_query?: string | null
 }
 
 export type OperatorSettings = {
@@ -175,6 +194,12 @@ export type CatalogProduct = {
   observation_count: number
   bought_past_month: number | null
   bought_past_month_text: string | null
+  tcg_status?: string | null
+  tcg_url?: string | null
+  tcg_name?: string | null
+  tcg_set?: string | null
+  tcg_price?: number | null
+  tcg_currency?: string | null
 }
 
 export type DuplicateHint = {

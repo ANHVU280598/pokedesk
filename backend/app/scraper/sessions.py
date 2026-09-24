@@ -127,8 +127,12 @@ class PlaywrightSession:
             await session.close()
             raise
 
-    async def get(self, url: str) -> str:
-        """Load a URL on the existing page. Does not open a browser, context, or page."""
+    async def get(self, url: str, *, ready: str | None = None) -> str:
+        """Load a URL on the existing page. Does not open a browser, context, or page.
+
+        ``ready`` overrides the Amazon landmark this page waits for. Pass an
+        empty string to skip that wait.
+        """
         assert self._page is not None
         response = await self._page.goto(
             url,
@@ -137,13 +141,17 @@ class PlaywrightSession:
         )
         self.last_status = response.status if response is not None else None
         product = bool(_PRODUCT_URL.search(url or ""))
-        try:
-            await self._page.wait_for_selector(
-                _PRODUCT_READY if product else _RESULTS_READY,
-                timeout=8_000 if product else 12_000,
-            )
-        except Exception:
-            logger.info("page landmark not found at %s", url)
+        selector = (
+            (_PRODUCT_READY if product else _RESULTS_READY) if ready is None else ready
+        )
+        if selector:
+            try:
+                await self._page.wait_for_selector(
+                    selector,
+                    timeout=8_000 if product and ready is None else 12_000,
+                )
+            except Exception:
+                logger.info("page landmark not found at %s", url)
         self._url = self._page.url
         return await self._page.content()
 

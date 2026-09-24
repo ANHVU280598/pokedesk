@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from "react"
 import { Button } from "@/components/ui/button"
-import { ApiError, getJob, listJobs, listObservations, pauseJob, resumeJob, retryJob, stopJob } from "../api"
+import { ApiError, getJob, listJobs, listObservations, matchJobOnTcg, pauseJob, resumeJob, retryJob, stopJob } from "../api"
 import { FollowUpButton, RecheckButton } from "../components/FollowUps"
 import { StatusChip } from "../components/StatusChip"
 import { formatBought, formatMoney, paginationLabel } from "../format"
@@ -108,6 +108,8 @@ export function LiveJob({
     return <p className="text-sm text-rose-800">{error}</p>
   }
 
+  const tcg = job.settings.mode === "tcgplayer"
+  const resultsId = tcg && job.settings.source_job_id ? job.settings.source_job_id : job.id
   const maxPages = job.settings.max_pages || 1
   const pct =
     job.status === "completed"
@@ -172,9 +174,25 @@ export function LiveJob({
             ) : (
               <p className="self-center text-sm">Stopped. Results kept.</p>
             )}
-            <Button size="sm" variant="outline" onClick={() => onOpenResults(job.id)}>
+            <Button size="sm" variant="outline" onClick={() => onOpenResults(resultsId)}>
               Open results
             </Button>
+            {!tcg && job.items_scraped > 0 ? (
+              <Button
+                size="sm"
+                variant="outline"
+                disabled={busy != null}
+                onClick={() =>
+                  act("tcg", async () => {
+                    const queued = await matchJobOnTcg(job.id)
+                    onAdopt(queued.id)
+                    return queued
+                  })
+                }
+              >
+                {busy === "tcg" ? "Queuing…" : "Match on TCGPlayer"}
+              </Button>
+            ) : null}
             <FollowUpButton jobId={job.id} onQueued={onAdopt} />
             <RecheckButton jobId={job.id} onQueued={onAdopt} />
           </div>
@@ -208,6 +226,12 @@ export function LiveJob({
         </p>
       ) : null}
 
+      {tcg && job.error_message?.startsWith("TCGPlayer:") ? (
+        <p className="mb-5 rounded-lg border border-sky-200 bg-sky-50 px-4 py-3 text-sm text-sky-950">
+          {job.error_message}
+        </p>
+      ) : null}
+
       {patternStatus(job) ? (
         <p className="mb-5 rounded-lg border border-sky-200 bg-sky-50 px-4 py-3 text-sm text-sky-950">
           {patternStatus(job)}
@@ -220,16 +244,20 @@ export function LiveJob({
             Pagination <span className="font-medium">{paginationLabel(job.pagination_mode)}</span>
           </span>
           <span className="text-muted-foreground">
-            Page {job.pages_visited} of {maxPages} · {job.items_scraped} cards
+            {tcg
+              ? `Product ${job.pages_visited} of ${maxPages}`
+              : `Page ${job.pages_visited} of ${maxPages} · ${job.items_scraped} cards`}
           </span>
         </div>
         <div className="mt-3 h-2 overflow-hidden rounded-full bg-muted">
           <div className="h-full bg-primary transition-all" style={{ width: `${pct}%` }} />
         </div>
         <p className="mt-3 text-xs text-muted-foreground">
-          {job.pages_visited === 0 && active
-            ? "Opening the first page…"
-            : "Pause and stop take effect between pages."}
+          {tcg
+            ? "Pause and stop take effect between products."
+            : job.pages_visited === 0 && active
+              ? "Opening the first page…"
+              : "Pause and stop take effect between pages."}
         </p>
         {error ? <p className="mt-3 text-sm text-rose-800">{error}</p> : null}
         <div className="mt-4 flex flex-wrap gap-2">
@@ -248,9 +276,24 @@ export function LiveJob({
               {busy === "stop" ? "Stopping…" : "Stop"}
             </Button>
           ) : null}
-          <Button size="sm" variant="outline" onClick={() => onOpenResults(job.id)}>
+          <Button size="sm" variant="outline" onClick={() => onOpenResults(resultsId)}>
             Open results
           </Button>
+          {!tcg && (job.status === "completed" || job.status === "blocked") && job.items_scraped > 0 ? (
+            <Button
+              size="sm"
+              disabled={busy != null}
+              onClick={() =>
+                act("tcg", async () => {
+                  const queued = await matchJobOnTcg(job.id)
+                  onAdopt(queued.id)
+                  return queued
+                })
+              }
+            >
+              {busy === "tcg" ? "Queuing…" : "Match on TCGPlayer"}
+            </Button>
+          ) : null}
         </div>
       </section>
 

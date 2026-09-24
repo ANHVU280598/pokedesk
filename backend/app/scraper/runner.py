@@ -88,6 +88,11 @@ async def run_job(job_id: int) -> None:
     session = None
     try:
         session = await _open_session(settings)
+        if settings.get("mode") == "tcgplayer":
+            from app.tcg.worker import run_tcg_match
+
+            await run_tcg_match(job_id, settings, session)
+            return
         url = settings.get("resume_url") or job["start_url"]
         if not url:
             db.finish_if_running(job_id, "failed", "Job has no start URL")
@@ -559,6 +564,15 @@ async def _open_session(settings: dict):
 
     Related expansion and the pattern recheck must keep calling this object.
     """
+    if settings.get("mode") == "tcgplayer":
+        if settings.get("fixture"):
+            from app.tcg.session import TcgFixtureSession
+
+            return TcgFixtureSession()
+        return await PlaywrightSession.launch(
+            headless=bool(settings.get("headless", True)),
+            proxy=playwright_proxy(settings),
+        )
     resume = str(settings.get("resume_url") or "")
     if settings.get("mode") == "fixture" or resume.startswith("fixture:"):
         return FixtureSession(settings.get("fixture_set") or "pokemon")

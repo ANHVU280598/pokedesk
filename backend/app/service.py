@@ -172,7 +172,11 @@ def resolve_job_proxy(body: JobCreate, defaults: dict) -> dict:
 
 def playwright_proxy(settings: dict) -> dict | None:
     """Proxy dict for Chromium. Fixture jobs never use one."""
-    if settings.get("mode") == "fixture" or str(settings.get("resume_url") or "").startswith("fixture:"):
+    if (
+        settings.get("mode") == "fixture"
+        or settings.get("fixture")
+        or str(settings.get("resume_url") or "").startswith("fixture:")
+    ):
         return None
     if not settings.get("proxy_enabled"):
         return None
@@ -292,6 +296,56 @@ def _continue_url(job: dict, url: str, pages: int) -> str | None:
     if url.startswith("http://") or url.startswith("https://"):
         return with_page(url, pages + 1)
     return None
+
+
+MATCH_LIMIT = 500
+
+
+def compose_tcg_match_job(
+    *,
+    products: list[dict],
+    defaults: dict,
+    fixture: bool,
+    source_job_id: int | None,
+) -> dict:
+    """Queue a TCGPlayer lookup for Amazon products already stored."""
+    if not products:
+        raise ValueError("No products to match")
+    if len(products) > MATCH_LIMIT:
+        raise ValueError(f"Match up to {MATCH_LIMIT} products at a time")
+    delay = 0.0 if fixture else float(defaults.get("delay_sec") or MIN_LIVE_DELAY)
+    if not fixture and delay < MIN_LIVE_DELAY:
+        delay = MIN_LIVE_DELAY
+    if delay > MAX_DELAY:
+        delay = MAX_DELAY
+    ids = [int(product["id"]) for product in products]
+    start = (
+        "fixture://tcgplayer"
+        if fixture
+        else "https://www.tcgplayer.com/search/pokemon/product"
+    )
+    terms = "tcgplayer" if source_job_id is None else f"tcgplayer|job {source_job_id}"
+    proxy_on = False if fixture else bool(defaults.get("proxy_enabled"))
+    return {
+        "start_url": start,
+        "search_query": "TCGPlayer match",
+        "search_terms": terms,
+        "parent_job_id": None,
+        "settings": {
+            "mode": "tcgplayer",
+            "fixture": fixture,
+            "source_job_id": source_job_id,
+            "product_ids": ids,
+            "max_pages": len(ids),
+            "delay_ms": int(round(delay * 1000)),
+            "headless": bool(defaults.get("headless", True)),
+            "proxy_enabled": proxy_on,
+            "proxy_url": "" if fixture else (defaults.get("proxy_url") or ""),
+            "proxy_username": "" if fixture else (defaults.get("proxy_username") or ""),
+            "proxy_password": "" if fixture else (defaults.get("proxy_password") or ""),
+            "resume_url": start,
+        },
+    }
 
 
 def _fixture_bundle(url: str) -> str | None:

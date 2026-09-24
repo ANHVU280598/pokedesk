@@ -45,7 +45,8 @@ export function jobMode(job: Job): JobMode {
   if (
     job.settings.mode === "url" ||
     job.settings.mode === "search" ||
-    job.settings.mode === "fixture"
+    job.settings.mode === "fixture" ||
+    job.settings.mode === "tcgplayer"
   ) {
     return job.settings.mode
   }
@@ -55,6 +56,10 @@ export function jobMode(job: Job): JobMode {
 }
 
 export function sourceLabel(job: Job) {
+  if (jobMode(job) === "tcgplayer") {
+    const source = job.settings.source_job_id
+    return source ? `TCGPlayer match · job ${source}` : "TCGPlayer match"
+  }
   if (jobMode(job) === "fixture") {
     return job.search_query ? `${job.search_query} · fixture` : "Fixture dry-run"
   }

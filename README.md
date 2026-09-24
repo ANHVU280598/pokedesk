@@ -43,9 +43,18 @@ make start      # API on http://127.0.0.1:8765 and UI on http://127.0.0.1:43123
 make pull       # git pull --ff-only of the current branch
 make restart    # stop both, then start them again
 make stop
+make push       # git push -u github <current-branch>
 ```
 
 `make pull` does not restart a running app. After a pull, run `make restart` so the new code is what is serving. Start is safe to repeat: if those ports are already open, it leaves them alone and prints the URLs. Logs go in `.catalog-desk/` (gitignored).
+
+`make push` uploads the current branch to Anh’s GitHub repo. It uses the `github` remote when that remote already exists (HTTPS or SSH). If `github` is missing, the script adds `https://github.com/ANHVU280598/pokedesk.git`. It does not force-push and it does not pull first. To use SSH instead:
+
+```bash
+git remote set-url github git@github.com:ANHVU280598/pokedesk.git
+```
+
+If the push is rejected for auth, sign in with a personal access token that has `repo` scope, or run `gh auth login`.
 
 The same commands work on macOS. The script uses the repo’s `.venv` and `frontend/node_modules`, so run the install steps above once first.
 
@@ -171,6 +180,13 @@ MVP choices baked in:
 - `scrape_jobs.parent_job_id` points at the blocked job a follow-up was created from. Deleting the parent clears the link.
 - `scrape_observations.source` is `results` or `related`. A related card does not replace that job’s results snapshot for the same product.
 - `bought_past_month` and `bought_past_month_text` sit on each observation, like price. They stay empty when the card does not show a “bought in past month” count. Results can sort by that number.
+- `tcgplayer_matches` stores one current TCGPlayer lookup per product (URL, name, set, price, confidence, and `matched`, `needs_review`, or `unmatched`). It survives later Amazon jobs. Clear or re-run replaces it.
+
+## TCGPlayer match
+
+After an Amazon job has products, **Results**, **Live job**, and **Database** can run **Match on TCGPlayer**. The worker searches TCGPlayer for each title, using the same delay, pause, and stop behavior as an Amazon crawl. It strips “Pokemon”, “TCG”, and pack-count noise from the title, then keeps a hit only when the names share a distinctive token. An empty search, or a clearly unrelated hit, is stored as unmatched. A weaker overlap is marked needs review.
+
+A dry-run Amazon job matches against saved search HTML, so tests and fixture scrapes do not open TCGPlayer. Products that have only ever been seen in fixture jobs stay on that path. A product from a live Amazon scrape uses Playwright against `tcgplayer.com` Pokemon search. One pass matches up to 500 products. Soft-blocks keep the matches already stored.
 
 ## API
 
@@ -187,7 +203,11 @@ MVP choices baked in:
 | GET | `/api/jobs/{id}/follow-ups` | Suggested price and sort slices for a blocked job |
 | POST | `/api/jobs/{id}/follow-ups` | Queue selected follow-ups (`suggestion_ids`) |
 | DELETE | `/api/jobs/{id}` | Delete a finished job, its observations, and its snapshots |
-| GET | `/api/jobs/{id}/observations` | Cards for a job (`q`, `min_price`, `max_price`, `min_rating`, `min_bought`, `sort` including `bought`) |
+| GET | `/api/jobs/{id}/observations` | Cards for a job (`q`, `min_price`, `max_price`, `min_rating`, `min_bought`, `sort` including `bought`). Each card includes its current TCGPlayer match when one is stored |
+| POST | `/api/jobs/{id}/tcg-match` | Queue a TCGPlayer match for that job’s products, or a `product_ids` subset |
+| DELETE | `/api/jobs/{id}/tcg-match` | Clear TCGPlayer matches for products in that job |
+| POST | `/api/products/tcg-match` | Queue a match for `product_ids` |
+| DELETE | `/api/products/{id}/tcg-match` | Clear one product’s TCGPlayer match |
 | GET | `/api/products` | Search the catalog (`q`, `has_asin`, `last_seen_after`, `last_seen_before`, `limit`, `offset`) |
 | GET | `/api/products/duplicates` | Same-title and no-ASIN hints |
 | POST | `/api/products/merge` | Merge `drop_id` into `keep_id` and reassign observations |
@@ -202,6 +222,7 @@ MVP choices baked in:
 ```
 backend/app/          FastAPI app, schema, worker
 backend/app/scraper/  HTML parser, URL builder, Playwright + fixture sessions
+backend/app/tcg/      TCGPlayer query, match, and fixture search HTML
 backend/app/fixtures/ Saved Amazon-like HTML for dry-runs
 backend/tests/        Parser, upsert, and API tests
 frontend/             React + Vite operator UI

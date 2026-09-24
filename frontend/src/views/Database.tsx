@@ -9,15 +9,19 @@ import {
   SheetHeader,
   SheetTitle,
 } from "@/components/ui/sheet"
+import { TcgMatchCell } from "../components/TcgMatch"
 import {
   ApiError,
+  clearProductTcgMatch,
   deleteJob,
   deleteObservation,
   deleteProduct,
+  getJob,
   getProduct,
   listDuplicates,
   listJobs,
   listProducts,
+  matchProductsOnTcg,
   mergeProducts,
   updateProduct,
 } from "../api"
@@ -74,6 +78,8 @@ function Products() {
   const [items, setItems] = useState<CatalogProduct[] | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [selectedId, setSelectedId] = useState<number | null>(null)
+  const [matching, setMatching] = useState(false)
+  const [matchNote, setMatchNote] = useState<string | null>(null)
 
   useEffect(() => {
     const timer = window.setTimeout(() => setDebounced(query.trim()), 200)
@@ -133,6 +139,28 @@ function Products() {
   const page = Math.floor(offset / PAGE) + 1
   const pages = Math.max(1, Math.ceil(total / PAGE))
 
+  async function matchVisible() {
+    if (!items?.length) return
+    setMatching(true)
+    setError(null)
+    setMatchNote("Looking up TCGPlayer…")
+    try {
+      const queued = await matchProductsOnTcg(items.map((item) => item.id))
+      let done = queued
+      while (done.status === "queued" || done.status === "running" || done.status === "paused") {
+        await new Promise((resolve) => window.setTimeout(resolve, 400))
+        done = await getJob(queued.id)
+      }
+      setMatchNote(done.error_message || `Match ${done.status}.`)
+      reload()
+    } catch (err) {
+      setMatchNote(null)
+      setError(err instanceof ApiError ? err.message : "TCGPlayer match failed.")
+    } finally {
+      setMatching(false)
+    }
+  }
+
   return (
     <div>
       <div className="mb-4 grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
@@ -182,6 +210,12 @@ function Products() {
           </div>
         </div>
       </div>
+      <div className="mb-3 flex flex-wrap items-center gap-2">
+        <Button type="button" size="sm" disabled={matching || !items?.length} onClick={() => void matchVisible()}>
+          {matching ? "Matching…" : "Match visible on TCGPlayer"}
+        </Button>
+        {matchNote ? <p className="text-sm text-muted-foreground">{matchNote}</p> : null}
+      </div>
       {error ? (
         <p className="mb-3 rounded-md border border-rose-200 bg-rose-50 px-3 py-2 text-sm text-rose-900">{error}</p>
       ) : null}
@@ -200,6 +234,7 @@ function Products() {
                 <th className="px-3 py-2 font-medium">ASIN</th>
                 <th className="px-3 py-2 font-medium">Last seen</th>
                 <th className="px-3 py-2 font-medium">Bought last month</th>
+                <th className="px-3 py-2 font-medium">TCGPlayer</th>
                 <th className="px-3 py-2 font-medium">Snapshots</th>
               </tr>
             </thead>
@@ -215,6 +250,9 @@ function Products() {
                   <td className="px-3 py-2 whitespace-nowrap">{formatWhen(item.last_seen_at)}</td>
                   <td className="px-3 py-2">
                     {formatBought(item.bought_past_month, item.bought_past_month_text)}
+                  </td>
+                  <td className="px-3 py-2">
+                    <TcgMatchCell match={item} />
                   </td>
                   <td className="px-3 py-2">{item.observation_count}</td>
                 </tr>
@@ -336,6 +374,42 @@ function ProductEditor({
     }
   }
 
+  async function rematch() {
+    if (productId == null) return
+    setPending(true)
+    setError(null)
+    try {
+      const queued = await matchProductsOnTcg([productId])
+      let done = queued
+      while (done.status === "queued" || done.status === "running" || done.status === "paused") {
+        await new Promise((resolve) => window.setTimeout(resolve, 400))
+        done = await getJob(queued.id)
+      }
+      const loaded = await getProduct(productId)
+      setProduct(loaded)
+      onChanged()
+    } catch (err) {
+      setError(err instanceof ApiError ? err.message : "Could not re-run the match.")
+    } finally {
+      setPending(false)
+    }
+  }
+
+  async function clearMatch() {
+    if (productId == null) return
+    setPending(true)
+    setError(null)
+    try {
+      const loaded = await clearProductTcgMatch(productId)
+      setProduct(loaded)
+      onChanged()
+    } catch (err) {
+      setError(err instanceof ApiError ? err.message : "Could not clear the match.")
+    } finally {
+      setPending(false)
+    }
+  }
+
   async function removeObservation(id: number) {
     if (!window.confirm("Delete this snapshot? The product row stays.")) return
     setPending(true)
@@ -388,6 +462,29 @@ function ProductEditor({
               <Field label="Image URL" value={imageUrl} onChange={setImageUrl} />
               <Field label="Product URL" value={productUrl} onChange={setProductUrl} />
               <Field label="Breadcrumbs" value={breadcrumbs} onChange={setBreadcrumbs} />
+              <div className="rounded-lg border p-3 text-sm">
+                <p className="text-xs text-muted-foreground">TCGPlayer</p>
+                <div className="mt-1">
+                  <TcgMatchCell match={product} />
+                </div>
+                {product.tcg_query ? (
+                  <p className="mt-1 text-xs text-muted-foreground">Searched “{product.tcg_query}”</p>
+                ) : null}
+                <div className="mt-2 flex flex-wrap gap-2">
+                  <Button type="button" size="sm" variant="outline" disabled={pending} onClick={() => void rematch()}>
+                    {pending ? "Working…" : "Re-run match"}
+                  </Button>
+                  <Button
+                    type="button"
+                    size="sm"
+                    variant="outline"
+                    disabled={pending || !product.tcg_status}
+                    onClick={() => void clearMatch()}
+                  >
+                    Clear match
+                  </Button>
+                </div>
+              </div>
               <div className="flex flex-wrap gap-2">
                 <Button type="button" disabled={pending} onClick={() => void save()}>
                   {pending ? "Saving…" : "Save"}

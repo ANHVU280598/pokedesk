@@ -61,3 +61,11 @@ class ProductUpdate(BaseModel):
 class ProductMerge(BaseModel):
     keep_id: int
     drop_id: int
+
+
+class TcgMatchBody(BaseModel):
+    product_ids: list[int] | None = None
+
+
+class ProductTcgMatch(BaseModel):
+    product_ids: list[int] = Field(min_length=1, max_length=500)

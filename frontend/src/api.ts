@@ -206,6 +206,30 @@ export function deleteProduct(id: number, force = false) {
   return api<{ ok: boolean }>(`/api/products/${id}${suffix}`, { method: "DELETE" })
 }
 
+export function matchJobOnTcg(jobId: number, productIds?: number[]) {
+  return api<Job>(`/api/jobs/${jobId}/tcg-match`, {
+    method: "POST",
+    body: JSON.stringify(productIds ? { product_ids: productIds } : {}),
+  })
+}
+
+export function clearJobTcgMatches(jobId: number) {
+  return api<{ ok: boolean; cleared: number }>(`/api/jobs/${jobId}/tcg-match`, {
+    method: "DELETE",
+  })
+}
+
+export function matchProductsOnTcg(productIds: number[]) {
+  return api<Job>("/api/products/tcg-match", {
+    method: "POST",
+    body: JSON.stringify({ product_ids: productIds }),
+  })
+}
+
+export function clearProductTcgMatch(productId: number) {
+  return api<Product>(`/api/products/${productId}/tcg-match`, { method: "DELETE" })
+}
+
 export function deleteObservation(id: number) {
   return api<{ ok: boolean; job_id: number }>(`/api/observations/${id}`, {
     method: "DELETE",

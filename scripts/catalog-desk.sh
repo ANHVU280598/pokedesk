@@ -130,6 +130,32 @@ cmd_pull() {
   echo "Pull finished. A running app was left alone. Run: make restart"
 }
 
+cmd_push() {
+  local branch url
+  branch="$(git rev-parse --abbrev-ref HEAD)"
+  if [[ "$branch" == "HEAD" ]]; then
+    echo "This checkout is not on a branch. Check out a branch, then run make push." >&2
+    exit 1
+  fi
+  if git remote get-url github >/dev/null 2>&1; then
+    url="$(git remote get-url github)"
+    echo "Remote github is ${url}"
+  else
+    url="https://github.com/ANHVU280598/pokedesk.git"
+    echo "Adding remote github → ${url}"
+    git remote add github "$url"
+  fi
+  echo "Pushing ${branch} to github"
+  if git push -u github "$branch"; then
+    echo "Pushed ${branch} to github."
+    return 0
+  fi
+  echo "GitHub push failed." >&2
+  echo "Use a personal access token with repo scope, or run: gh auth login" >&2
+  echo "SSH alternative: git remote set-url github git@github.com:ANHVU280598/pokedesk.git" >&2
+  exit 1
+}
+
 cmd_restart() {
   cmd_stop
   cmd_start
@@ -142,9 +168,10 @@ Catalog Desk
   2) Pull     git pull --ff-only of this branch
   3) Restart  stop, then start
   4) Stop
-  5) Quit
+  5) Push     current branch to github (ANHVU280598/pokedesk)
+  6) Quit
 EOF
-  printf "Choose [1-5]: "
+  printf "Choose [1-6]: "
   local choice
   read -r choice
   case "$choice" in
@@ -152,7 +179,8 @@ EOF
     2) cmd_pull ;;
     3) cmd_restart ;;
     4) cmd_stop ;;
-    5) exit 0 ;;
+    5) cmd_push ;;
+    6) exit 0 ;;
     *)
       echo "Unknown choice: ${choice}" >&2
       exit 1
@@ -161,7 +189,7 @@ EOF
 }
 
 usage() {
-  echo "Usage: ./scripts/catalog-desk.sh {start|pull|restart|stop}" >&2
+  echo "Usage: ./scripts/catalog-desk.sh {start|pull|restart|stop|push}" >&2
   echo "With no arguments, an interactive menu runs when stdin is a terminal." >&2
 }
 
@@ -170,6 +198,7 @@ case "${1:-}" in
   pull) cmd_pull ;;
   restart) cmd_restart ;;
   stop) cmd_stop ;;
+  push) cmd_push ;;
   "")
     if [[ -t 0 ]]; then
       menu

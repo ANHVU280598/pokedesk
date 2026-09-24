@@ -77,3 +77,20 @@ CREATE TABLE IF NOT EXISTS page_snapshots (
 );
 
 CREATE INDEX IF NOT EXISTS ix_snapshots_job ON page_snapshots(job_id);
+
+CREATE TABLE IF NOT EXISTS tcgplayer_matches (
+  product_id INTEGER PRIMARY KEY REFERENCES products(id) ON DELETE CASCADE,
+  job_id INTEGER REFERENCES scrape_jobs(id) ON DELETE SET NULL,
+  query TEXT NOT NULL,
+  status TEXT NOT NULL CHECK (status IN ('matched', 'needs_review', 'unmatched')),
+  tcg_url TEXT,
+  tcg_name TEXT,
+  tcg_set TEXT,
+  price REAL,
+  currency TEXT,
+  confidence REAL,
+  raw_json TEXT,
+  matched_at TEXT NOT NULL
+);
+
+CREATE INDEX IF NOT EXISTS ix_tcg_job ON tcgplayer_matches(job_id);

@@ -10,7 +10,17 @@ import {
   SheetHeader,
   SheetTitle,
 } from "@/components/ui/sheet"
-import { ApiError, getProduct, listJobs, listObservations } from "../api"
+import { TcgMatchCell } from "../components/TcgMatch"
+import {
+  ApiError,
+  clearJobTcgMatches,
+  clearProductTcgMatch,
+  getJob,
+  getProduct,
+  listJobs,
+  listObservations,
+  matchJobOnTcg,
+} from "../api"
 import { formatBought, formatCount, formatMoney, formatRating, formatWhen, sourceLabel } from "../format"
 import type { Job, Observation, Product } from "../types"
 
@@ -31,6 +41,9 @@ export function Results({
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
   const [detail, setDetail] = useState<Observation | null>(null)
+  const [matching, setMatching] = useState(false)
+  const [matchNote, setMatchNote] = useState<string | null>(null)
+  const [reloadKey, setReloadKey] = useState(0)
 
   useEffect(() => {
     setJobId(initialJobId)
@@ -47,7 +60,11 @@ export function Results({
       .then((rows) => {
         if (cancel) return
         setJobs(rows)
-        setJobId((current) => current ?? rows[0]?.id ?? null)
+        setJobId((current) => {
+          if (current != null) return current
+          const amazon = rows.find((job) => job.settings.mode !== "tcgplayer")
+          return amazon?.id ?? null
+        })
       })
       .catch((err: unknown) => {
         if (!cancel) setError(err instanceof ApiError ? err.message : "Could not load jobs.")
@@ -87,9 +104,48 @@ export function Results({
     return () => {
       cancel = true
     }
-  }, [jobId, debounced, minRating, sort])
+  }, [jobId, debounced, minRating, sort, reloadKey])
+
+  async function runMatch() {
+    if (jobId == null) return
+    setMatching(true)
+    setError(null)
+    setMatchNote("Looking up TCGPlayer…")
+    try {
+      const queued = await matchJobOnTcg(jobId)
+      const done = await waitForJob(queued.id)
+      setMatchNote(done.error_message || `Match ${done.status}.`)
+      setReloadKey((value) => value + 1)
+    } catch (err) {
+      setMatchNote(null)
+      setError(err instanceof ApiError ? err.message : "TCGPlayer match failed.")
+    } finally {
+      setMatching(false)
+    }
+  }
+
+  async function clearMatches() {
+    if (jobId == null) return
+    setMatching(true)
+    setError(null)
+    try {
+      const result = await clearJobTcgMatches(jobId)
+      setMatchNote(
+        result.cleared
+          ? `Cleared ${result.cleared} TCGPlayer match${result.cleared === 1 ? "" : "es"}.`
+          : "No TCGPlayer matches on this job.",
+      )
+      setReloadKey((value) => value + 1)
+    } catch (err) {
+      setError(err instanceof ApiError ? err.message : "Could not clear matches.")
+    } finally {
+      setMatching(false)
+    }
+  }
 
   const filtering = Boolean(debounced || minRating)
+  const amazonJobs = jobs.filter((job) => job.settings.mode !== "tcgplayer")
+  const hasMatches = items.some((item) => item.tcg_status)
 
   return (
     <div>
@@ -132,8 +188,8 @@ export function Results({
             onChange={(event) => setJobId(event.target.value ? Number(event.target.value) : null)}
             className="h-10 w-full rounded-lg border border-input bg-card px-2.5 text-sm"
           >
-            {jobs.length === 0 ? <option value="">No jobs</option> : null}
-            {jobs.map((job) => (
+            {amazonJobs.length === 0 ? <option value="">No jobs</option> : null}
+            {amazonJobs.map((job) => (
               <option key={job.id} value={job.id}>
                 #{job.id} · {sourceLabel(job)}
               </option>
@@ -181,6 +237,22 @@ export function Results({
         </div>
       </div>
 
+      <div className="mb-4 flex flex-wrap items-center gap-2">
+        <Button type="button" size="sm" disabled={jobId == null || matching || items.length === 0} onClick={() => void runMatch()}>
+          {matching ? "Matching…" : "Match on TCGPlayer"}
+        </Button>
+        <Button
+          type="button"
+          size="sm"
+          variant="outline"
+          disabled={jobId == null || matching || !hasMatches}
+          onClick={() => void clearMatches()}
+        >
+          Clear matches
+        </Button>
+        {matchNote ? <p className="text-sm text-muted-foreground">{matchNote}</p> : null}
+      </div>
+
       {error ? (
         <p className="mb-4 rounded-md border border-rose-200 bg-rose-50 px-3 py-2 text-sm text-rose-900">{error}</p>
       ) : null}
@@ -209,6 +281,7 @@ export function Results({
                 <th className="px-3 py-2 font-medium">Rating</th>
                 <th className="px-3 py-2 font-medium">Reviews</th>
                 <th className="px-3 py-2 font-medium">Bought last month</th>
+                <th className="px-3 py-2 font-medium">TCGPlayer</th>
                 <th className="px-3 py-2 font-medium">Page</th>
               </tr>
             </thead>
@@ -245,6 +318,9 @@ export function Results({
                   <td className="px-3 py-2">{formatRating(item.rating)}</td>
                   <td className="px-3 py-2">{formatCount(item.review_count)}</td>
                   <td className="px-3 py-2">{formatBought(item.bought_past_month, item.bought_past_month_text)}</td>
+                  <td className="px-3 py-2">
+                    <TcgMatchCell match={item} />
+                  </td>
                   <td className="px-3 py-2">{item.page_number ?? "—"}</td>
                 </tr>
               ))}
@@ -271,13 +347,18 @@ export function Results({
                 <p className="text-xs text-muted-foreground">
                   Bought last month {formatBought(item.bought_past_month, item.bought_past_month_text)}
                 </p>
+                <TcgMatchCell match={item} />
               </div>
             </button>
           ))}
         </div>
       )}
 
-      <DetailDrawer item={detail} onClose={() => setDetail(null)} />
+      <DetailDrawer
+        item={detail}
+        onClose={() => setDetail(null)}
+        onChanged={() => setReloadKey((value) => value + 1)}
+      />
     </div>
   )
 }
@@ -306,15 +387,29 @@ function Thumb({ src, large = false }: { src: string | null; large?: boolean }) 
   )
 }
 
+async function waitForJob(id: number) {
+  for (;;) {
+    const job = await getJob(id)
+    if (job.status !== "queued" && job.status !== "running" && job.status !== "paused") {
+      return job
+    }
+    await new Promise((resolve) => window.setTimeout(resolve, 400))
+  }
+}
+
 function DetailDrawer({
   item,
   onClose,
+  onChanged,
 }: {
   item: Observation | null
   onClose: () => void
+  onChanged: () => void
 }) {
   const [product, setProduct] = useState<Product | null>(null)
   const [copyLabel, setCopyLabel] = useState("Copy ASIN")
+  const [matchBusy, setMatchBusy] = useState(false)
+  const [matchError, setMatchError] = useState<string | null>(null)
 
   useEffect(() => {
     setCopyLabel("Copy ASIN")
@@ -347,6 +442,39 @@ function DetailDrawer({
       setCopyLabel("Copy failed")
     }
     window.setTimeout(() => setCopyLabel("Copy ASIN"), 1200)
+  }
+
+  async function rematchOne() {
+    if (!item) return
+    setMatchBusy(true)
+    setMatchError(null)
+    try {
+      const queued = await matchJobOnTcg(item.job_id, [item.product_id])
+      await waitForJob(queued.id)
+      onChanged()
+      const next = await getProduct(item.product_id)
+      setProduct(next)
+    } catch (err) {
+      setMatchError(err instanceof ApiError ? err.message : "Could not re-run the match.")
+    } finally {
+      setMatchBusy(false)
+    }
+  }
+
+  async function clearOne() {
+    if (!item) return
+    setMatchBusy(true)
+    setMatchError(null)
+    try {
+      await clearProductTcgMatch(item.product_id)
+      onChanged()
+      const next = await getProduct(item.product_id)
+      setProduct(next)
+    } catch (err) {
+      setMatchError(err instanceof ApiError ? err.message : "Could not clear the match.")
+    } finally {
+      setMatchBusy(false)
+    }
   }
 
   return (
@@ -410,6 +538,36 @@ function DetailDrawer({
               {item.availability_snippet ? (
                 <p className="text-sm text-muted-foreground">{item.availability_snippet}</p>
               ) : null}
+              <div>
+                <p className="text-xs text-muted-foreground">TCGPlayer</p>
+                <div className="mt-1">
+                  <TcgMatchCell match={product ?? item} />
+                </div>
+                {(product ?? item).tcg_query ? (
+                  <p className="mt-1 text-xs text-muted-foreground">
+                    Searched “{(product ?? item).tcg_query}”
+                  </p>
+                ) : null}
+                <div className="mt-2 flex flex-wrap gap-2">
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    disabled={matchBusy}
+                    onClick={() => void rematchOne()}
+                  >
+                    {matchBusy ? "Matching…" : "Re-run match"}
+                  </Button>
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    disabled={matchBusy || !(product ?? item).tcg_status}
+                    onClick={() => void clearOne()}
+                  >
+                    Clear match
+                  </Button>
+                </div>
+                {matchError ? <p className="mt-2 text-sm text-rose-800">{matchError}</p> : null}
+              </div>
               {product?.category_breadcrumbs ? (
                 <p className="text-xs text-muted-foreground">{product.category_breadcrumbs}</p>
               ) : null}

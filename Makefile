@@ -1,4 +1,4 @@
-.PHONY: api ui test start pull restart stop
+.PHONY: api ui test start pull restart stop push
 
 PY ?= .venv/bin/python
 UVICORN ?= .venv/bin/uvicorn
@@ -23,3 +23,6 @@ restart:
 
 stop:
 	./scripts/catalog-desk.sh stop
+
+push:
+	./scripts/catalog-desk.sh push

@@ -5,8 +5,23 @@ from __future__ import annotations
 from fastapi import APIRouter, HTTPException, Request
 
 from app import db, followups, settings_store
-from app.schemas import FollowUpCreate, JobCreate, ProductMerge, ProductUpdate, RecheckBody, SettingsUpdate
-from app.service import clean_settings, compose_new_job, recheck_patch, retry_wait_seconds
+from app.schemas import (
+    FollowUpCreate,
+    JobCreate,
+    ProductMerge,
+    ProductTcgMatch,
+    ProductUpdate,
+    RecheckBody,
+    SettingsUpdate,
+    TcgMatchBody,
+)
+from app.service import (
+    clean_settings,
+    compose_new_job,
+    compose_tcg_match_job,
+    recheck_patch,
+    retry_wait_seconds,
+)
 
 router = APIRouter(prefix="/api")
 
@@ -170,6 +185,51 @@ async def create_followups(job_id: int, body: FollowUpCreate, request: Request) 
     }
 
 
+@router.post("/jobs/{job_id}/tcg-match", status_code=201)
+async def start_job_tcg_match(
+    job_id: int,
+    request: Request,
+    body: TcgMatchBody | None = None,
+) -> dict:
+    job = db.get_job(job_id)
+    if job is None:
+        raise HTTPException(404, "Job not found")
+    if (job.get("settings") or {}).get("mode") == "tcgplayer":
+        raise HTTPException(400, "Match an Amazon scrape, not a TCGPlayer pass")
+    rows = db.list_match_products(job_id)
+    wanted = None if body is None or body.product_ids is None else list(body.product_ids)
+    if wanted is not None:
+        if not wanted:
+            raise HTTPException(400, "Pick at least one product")
+        known = {int(row["id"]) for row in rows}
+        if any(int(pid) not in known for pid in wanted):
+            raise HTTPException(400, "Those products are not in this job")
+        order = {int(pid): index for index, pid in enumerate(wanted)}
+        rows = [row for row in rows if int(row["id"]) in order]
+        rows.sort(key=lambda row: order[int(row["id"])])
+    fixture = (job.get("settings") or {}).get("mode") == "fixture"
+    try:
+        spec = compose_tcg_match_job(
+            products=rows,
+            defaults=settings_store.get(),
+            fixture=fixture,
+            source_job_id=job_id,
+        )
+    except ValueError as exc:
+        raise HTTPException(400, str(exc)) from exc
+    created = db.create_job(**spec)
+    request.app.state.runner.notify()
+    return _public_job(created)
+
+
+@router.delete("/jobs/{job_id}/tcg-match")
+async def clear_job_tcg_matches(job_id: int) -> dict:
+    if db.get_job(job_id) is None:
+        raise HTTPException(404, "Job not found")
+    cleared = db.clear_tcg_matches_for_job(job_id)
+    return {"ok": True, "cleared": cleared}
+
+
 @router.delete("/jobs/{job_id}")
 async def remove_job(job_id: int) -> dict:
     _catalog(lambda: db.delete_job(job_id))
@@ -211,6 +271,25 @@ async def merge_products(body: ProductMerge) -> dict:
     return _catalog(lambda: db.merge_products(body.keep_id, body.drop_id))
 
 
+@router.post("/products/tcg-match", status_code=201)
+async def start_product_tcg_match(body: ProductTcgMatch, request: Request) -> dict:
+    rows = db.list_products_by_ids(body.product_ids)
+    if len(rows) != len(set(body.product_ids)):
+        raise HTTPException(400, "Unknown product")
+    try:
+        spec = compose_tcg_match_job(
+            products=rows,
+            defaults=settings_store.get(),
+            fixture=db.products_are_fixture_only(body.product_ids),
+            source_job_id=None,
+        )
+    except ValueError as exc:
+        raise HTTPException(400, str(exc)) from exc
+    created = db.create_job(**spec)
+    request.app.state.runner.notify()
+    return _public_job(created)
+
+
 @router.get("/products/{product_id}")
 async def read_product(product_id: int) -> dict:
     product = db.get_product(product_id)
@@ -231,6 +310,15 @@ async def patch_product(product_id: int, body: ProductUpdate) -> dict:
             category_breadcrumbs=body.category_breadcrumbs,
         )
     )
+
+
+@router.delete("/products/{product_id}/tcg-match")
+async def clear_product_tcg_match(product_id: int) -> dict:
+    _catalog(lambda: db.clear_tcg_match(product_id))
+    product = db.get_product(product_id)
+    if product is None:
+        raise HTTPException(404, "Product not found")
+    return product
 
 
 @router.delete("/products/{product_id}")
