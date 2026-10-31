@@ -1,0 +1,23 @@
+{
+  "name": "@pulse/worker",
+  "version": "0.0.1",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "wrangler dev --port 8787 --ip 127.0.0.1 --persist-to ../.wrangler/state",
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run",
+    "db:migrate": "wrangler d1 migrations apply pulse-desk --local --persist-to ../.wrangler/state"
+  },
+  "dependencies": {
+    "@pulse/shared": "*",
+    "hono": "^4.10.7",
+    "zod": "^3.25.76"
+  },
+  "devDependencies": {
+    "@cloudflare/workers-types": "^4.20251014.0",
+    "typescript": "^5.9.3",
+    "vitest": "^3.2.4",
+    "wrangler": "^4.45.0"
+  }
+}

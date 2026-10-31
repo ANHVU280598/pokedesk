@@ -1,0 +1,5 @@
+Read PLAN.md before writing code.
+Do one phase at a time.
+No secrets in git. Never commit .env files, API keys, or node_modules.
+The office is flat-shaded and low-poly (MeshStandardMaterial, flatShading: true).
+Never auto-send a newsletter.

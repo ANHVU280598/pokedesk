@@ -1,0 +1,22 @@
+name = "pulse-desk"
+main = "src/index.ts"
+compatibility_date = "2026-01-15"
+compatibility_flags = ["nodejs_compat"]
+
+[vars]
+ENVIRONMENT = "development"
+DAILY_TOKEN_BUDGET = "20000"
+CLAUDE_MODEL = "claude-haiku-5-5"
+
+[[d1_databases]]
+binding = "DB"
+database_name = "pulse-desk"
+database_id = "00000000-0000-0000-0000-000000000000"
+migrations_dir = "migrations"
+
+[[kv_namespaces]]
+binding = "KV"
+id = "00000000-0000-0000-0000-000000000001"
+
+[triggers]
+crons = ["0 6 * * *"]
