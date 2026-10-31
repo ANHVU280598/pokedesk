@@ -1,6 +1,9 @@
 import type { EmployeeId } from "@pulse/shared";
+import { approveIssue, getEvents, getLatestIssue, saveIssue } from "./api";
 import { createCast, type Cast } from "./characters";
 import { mountDebug } from "./debug";
+import { createHandoff } from "./handoff";
+import { placeBubbles, playRun } from "./playback";
 import { createOffice, type Office } from "./scene";
 import { mountUi, type Ui } from "./ui";
 import "./style.css";
@@ -13,9 +16,33 @@ if (!canvas || !boot) {
 
 const office = createOffice(canvas);
 const cast = createCast(office.actorRoot, office.scene, office.camera);
+const handoff = createHandoff(office.scene);
 const ui = mountUi();
 mountDebug(cast);
 ui.onSpeed((speed) => cast.setTimeScale(speed === 0 ? 0 : speed));
+ui.onRun(() => {
+  void playRun({
+    ui,
+    cast,
+    office,
+    handoff,
+    focus: (id) => {
+      focused = id;
+      if (id) office.follow(cast.focusPoint(id), 16);
+    },
+  });
+});
+ui.onSave(async (issue) => {
+  const saved = await saveIssue(issue.id, issue.subject, issue.body);
+  ui.setIssue(saved);
+  ui.toast("Saved. Nothing was sent.");
+});
+ui.onApprove(async (issue) => {
+  const saved = await approveIssue(issue.id);
+  ui.setIssue(saved);
+  ui.setStatus("Idle");
+  ui.toast("Approved. Nothing was sent.");
+});
 
 const context = office.renderer.getContext();
 if (!context) {
@@ -62,7 +89,20 @@ function frame(now: number): void {
     office.update(dt);
     cast.update(dt);
     office.render();
+    placeBubbles((id) => office.project(cast.focusPoint(id)));
   }
   requestAnimationFrame(frame);
 }
+
+void (async () => {
+  try {
+    const issue = await getLatestIssue();
+    if (!issue) return;
+    ui.setIssue(issue);
+    ui.setEvents(await getEvents(issue.runId));
+    ui.setStatus(issue.status === "pending_approval" ? "Waiting for approval" : "Idle");
+  } catch {
+    ui.toast("The desk is offline. You can still look around.");
+  }
+})();
 requestAnimationFrame(frame);

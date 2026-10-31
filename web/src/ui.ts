@@ -19,6 +19,7 @@ export type Ui = {
   onSave(handler: (issue: Issue) => void | Promise<void>): void;
   onSpeed(handler: (speed: Speed) => void): void;
   onFollow(handler: (on: boolean) => void): void;
+  setBusy(on: boolean): void;
   speed(): Speed;
   autoFollow(): boolean;
 };
@@ -26,8 +27,9 @@ export type Ui = {
 const TOUR_KEY = "pulse-desk-tour-v1";
 
 export function mountUi(): Ui {
-  let events = MOCK_EVENTS.map((event) => ({ ...event }));
-  let issue: Issue | null = structuredClone(MOCK_ISSUE);
+  const useMock = new URLSearchParams(window.location.search).has("mock");
+  let events = useMock ? MOCK_EVENTS.map((event) => ({ ...event })) : [];
+  let issue: Issue | null = useMock ? structuredClone(MOCK_ISSUE) : null;
   let speed: Speed = 1;
   let follow = false;
   let speedHandler: (next: Speed) => void = () => {};
@@ -255,7 +257,11 @@ export function mountUi(): Ui {
       updatedAt: Date.now(),
     };
     editing = false;
-    if (saveHandler) await saveHandler(issue);
+    if (saveHandler) {
+      await saveHandler(issue);
+      renderAll();
+      return;
+    }
     renderAll();
     toast("Saved on this desk.");
   }
@@ -405,7 +411,7 @@ export function mountUi(): Ui {
 
   applyHeight(0);
   renderAll();
-  setStatus("Waiting for approval");
+  setStatus(useMock ? "Waiting for approval" : "Idle");
 
   return {
     setStatus,
@@ -440,6 +446,10 @@ export function mountUi(): Ui {
     },
     onFollow(handler) {
       followHandler = handler;
+    },
+    setBusy(on) {
+      const button = root.querySelector<HTMLButtonElement>("#run");
+      if (button) button.disabled = on;
     },
     speed: () => speed,
     autoFollow: () => follow,

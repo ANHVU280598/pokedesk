@@ -267,6 +267,10 @@ body {
   font-weight: 700;
 }
 
+#dock #run:disabled {
+  opacity: 0.55;
+}
+
 #sheet {
   position: fixed;
   z-index: 7;
