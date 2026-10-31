@@ -19,6 +19,7 @@ const ZONE_LABEL: Record<StationId, string> = {
 };
 
 export function mountDebug(cast: Cast): void {
+  if (!new URLSearchParams(window.location.search).has("debug")) return;
   const panel = document.createElement("details");
   panel.id = "debug";
   const summary = document.createElement("summary");

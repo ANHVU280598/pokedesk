@@ -9,6 +9,7 @@ export type CoinFact = {
 
 export type MarketSnapshot = {
   coins: CoinFact[];
+  fetchedAt: number;
 };
 
 const TRENDING = "https://api.coingecko.com/api/v3/search/trending";
@@ -51,7 +52,7 @@ export async function loadMarket(fetchImpl: typeof fetch = fetch): Promise<Marke
   if (coins.length < 3) {
     throw new Error("CoinGecko is unavailable. The run stopped and nothing was sent.");
   }
-  return { coins };
+  return { coins, fetchedAt: Date.now() };
 }
 
 function fact(id: string, name: string, symbol: string, change24h: number, volume: number): CoinFact {

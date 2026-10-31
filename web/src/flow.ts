@@ -27,6 +27,7 @@ export const FLOW_STEPS: FlowStep[] = [
     action: "assign",
     title: "Assign today's issue",
     phoneTitle: "Assign\ntoday's issue",
+    whenActive: true,
   },
   {
     n: 2,
@@ -36,6 +37,7 @@ export const FLOW_STEPS: FlowStep[] = [
     detail: "trending and top movers",
     phoneTitle: "Search\nCoinGecko",
     phoneDetail: "trending and\ntop movers",
+    whenActive: true,
   },
   {
     n: 3,
@@ -43,6 +45,7 @@ export const FLOW_STEPS: FlowStep[] = [
     action: "draft",
     title: "Write the summary",
     phoneTitle: "Write the\nsummary",
+    whenActive: true,
   },
   {
     n: 4,
@@ -50,6 +53,7 @@ export const FLOW_STEPS: FlowStep[] = [
     action: "factcheck",
     title: "Fact-check, no predictions",
     phoneTitle: "Fact-check,\nno predictions",
+    whenActive: true,
   },
   {
     n: 5,
@@ -67,6 +71,7 @@ export const FLOW_STEPS: FlowStep[] = [
     detail: "disclosed affiliates",
     phoneTitle: "Subject line",
     phoneDetail: "disclosed\naffiliates",
+    whenActive: true,
   },
   {
     n: 7,
@@ -76,6 +81,7 @@ export const FLOW_STEPS: FlowStep[] = [
     detail: "lands in the outbox",
     phoneTitle: "Ready for\napproval",
     phoneDetail: "lands in\nthe outbox",
+    whenActive: true,
   },
 ];
 

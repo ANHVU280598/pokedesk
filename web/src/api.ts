@@ -1,4 +1,4 @@
-import type { Issue, WorkEvent } from "@pulse/shared";
+import type { DeskRun, Issue, WorkEvent } from "@pulse/shared";
 
 const root = import.meta.env.VITE_API_BASE ?? "";
 
@@ -36,10 +36,24 @@ export async function getRun(runId: string): Promise<{ status: string; error: st
   return { status: run?.status ?? "running", error: run?.error ?? null };
 }
 
-export async function getLatestIssue(approvedOnly = false): Promise<Issue | null> {
+export type DeskPayload = {
+  issue: Issue | null;
+  run: DeskRun | null;
+  setAside: boolean;
+};
+
+export async function getDesk(approvedOnly = false): Promise<DeskPayload> {
   const query = approvedOnly ? "?public=1" : "";
   const data = await read(await fetch(`${root}/api/issues/latest${query}`));
-  return (data.issue as Issue | null) ?? null;
+  return {
+    issue: (data.issue as Issue | null) ?? null,
+    run: (data.run as DeskRun | null) ?? null,
+    setAside: data.setAside === true,
+  };
+}
+
+export async function getLatestIssue(approvedOnly = false): Promise<Issue | null> {
+  return (await getDesk(approvedOnly)).issue;
 }
 
 export async function saveIssue(id: string, subject: string, body: string): Promise<Issue> {

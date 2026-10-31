@@ -1,0 +1,1 @@
+ALTER TABLE issues ADD COLUMN detail_json TEXT NOT NULL DEFAULT '{}';

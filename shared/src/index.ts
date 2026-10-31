@@ -40,6 +40,31 @@ export type Employee = {
 
 export type IssueStatus = "pending_approval" | "approved" | "failed";
 
+export type RunSource = "manual" | "cron" | "unknown";
+
+export type IssueSection = {
+  heading: string;
+  text: string;
+};
+
+const PREDICTION =
+  /\b\d+\s?x\b|\bto the moon\b|\bprice target\b|\bwill (hit|reach|surge|soar|moon|pump|explode)\b|\bprice will\b|\bguaranteed (gain|return|profit|rally)\b|\bgoing to (hit|reach|moon|pump)\b/i;
+
+export function hasPrediction(text: string): boolean {
+  return PREDICTION.test(text);
+}
+
+export function predictionPhrases(text: string): string[] {
+  const phrases: string[] = [];
+  for (const chunk of text.split(/\n+/)) {
+    for (const part of chunk.split(/(?<=[.!?])\s+/)) {
+      const trimmed = part.trim();
+      if (trimmed && hasPrediction(trimmed)) phrases.push(trimmed);
+    }
+  }
+  return [...new Set(phrases)];
+}
+
 export type SourceLink = {
   title: string;
   url: string;
@@ -60,9 +85,22 @@ export type Issue = {
   footer: string;
   sources: SourceLink[];
   affiliates: AffiliateBlock[];
+  sections: IssueSection[];
+  removed: string[];
+  fetchedAt: number | null;
+  runSource: RunSource;
   status: IssueStatus;
   createdAt: number;
   updatedAt: number;
+};
+
+export type DeskRun = {
+  id: string;
+  status: "running" | "succeeded" | "failed";
+  source: RunSource;
+  startedAt: number;
+  finishedAt: number | null;
+  error: string | null;
 };
 
 export type Station = {

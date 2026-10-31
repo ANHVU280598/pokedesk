@@ -1,4 +1,4 @@
-import { EMPLOYEES } from "@pulse/shared";
+import { EMPLOYEES, type DeskRun, type RunSource } from "@pulse/shared";
 import { Hono, type Context } from "hono";
 import { cors } from "hono/cors";
 import { createClaude, PREFERRED_MODEL } from "./claude";
@@ -34,8 +34,11 @@ app.get("/api/runs/:id", async (c) => {
 });
 
 app.get("/api/issues/latest", async (c) => {
-  const issue = await createD1Store(c.env.DB).latestIssue(c.req.query("public") === "1");
-  return c.json({ ok: true, issue });
+  const store = createD1Store(c.env.DB);
+  const issue = await store.latestIssue(c.req.query("public") === "1");
+  const run = await store.latestRun();
+  const setAside = issue ? (await store.pendingBefore(issue.createdAt)) > 0 : false;
+  return c.json({ ok: true, issue, run: toDeskRun(run), setAside });
 });
 
 app.get("/api/issues/:id", async (c) => {
@@ -102,6 +105,19 @@ app.post("/api/issues/:id/publish", async (c) => {
   if (issue.status !== "approved") return c.json({ ok: false, error: "Approve the issue before preparing a publish." }, 409);
   return c.json({ ok: true, plan: preparePublish(issue, c.env) });
 });
+
+function toDeskRun(run: { id: string; status: DeskRun["status"]; source: string; startedAt: number; finishedAt: number | null; error: string | null } | null): DeskRun | null {
+  if (!run) return null;
+  const source: RunSource = run.source === "manual" || run.source === "cron" ? run.source : "unknown";
+  return {
+    id: run.id,
+    status: run.status,
+    source,
+    startedAt: run.startedAt,
+    finishedAt: run.finishedAt,
+    error: run.error,
+  };
+}
 
 async function jsonRun(c: Context<{ Bindings: Env }>, source: "manual" | "cron", sync: boolean): Promise<Response> {
   const store = createD1Store(c.env.DB);

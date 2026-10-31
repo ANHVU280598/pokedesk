@@ -1,5 +1,5 @@
 import type { EmployeeId } from "@pulse/shared";
-import { approveIssue, getEvents, getLatestIssue, prepareIssuePublish, saveIssue } from "./api";
+import { approveIssue, getDesk, getEvents, prepareIssuePublish, saveIssue } from "./api";
 import { createCast, type Cast } from "./characters";
 import { mountDebug } from "./debug";
 import { createHandoff } from "./handoff";
@@ -101,14 +101,11 @@ function frame(now: number): void {
 
 void (async () => {
   try {
-    const issue = await getLatestIssue(demo);
-    if (!issue) {
-      ui.setIssue(null);
-      return;
-    }
-    ui.setIssue(issue);
-    ui.setEvents(await getEvents(issue.runId));
-    ui.setStatus(issue.status === "pending_approval" ? "Waiting for approval" : "Idle");
+    const desk = await getDesk(demo);
+    ui.setDesk(desk);
+    if (!desk.issue) return;
+    ui.setEvents(await getEvents(desk.issue.runId));
+    ui.setStatus(desk.issue.status === "pending_approval" ? "Waiting for you" : "Idle");
   } catch {
     ui.setIssue(null);
     ui.toast("The desk is offline. You can still look around.");

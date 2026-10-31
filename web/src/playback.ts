@@ -1,6 +1,6 @@
 import { employeeById, type EmployeeId, type WorkEvent } from "@pulse/shared";
 import { Vector3 } from "three";
-import { getEvents, getLatestIssue, getRun, startRun } from "./api";
+import { getDesk, getEvents, getRun, startRun } from "./api";
 import type { Cast } from "./characters";
 import type { Handoff } from "./handoff";
 import type { Office } from "./scene";
@@ -43,11 +43,12 @@ export async function watchEvents(events: WorkEvent[], input: {
     input.ui.toast("No approved issue to watch yet.");
     return;
   }
-  input.ui.setBusy(true);
+  input.ui.setStep(0, events.length || 1);
   input.ui.setStatus(`Running 0/${events.length}`);
   await animateEvents(events, input);
   input.ui.setBusy(false);
-  input.ui.setStatus("Idle");
+  if (events.some((event) => event.status === "error")) input.ui.markFailed();
+  input.ui.setStatus(events.some((event) => event.status === "error") ? "Failed" : "Idle");
 }
 
 async function animateEvents(events: WorkEvent[], input: {
@@ -61,6 +62,7 @@ async function animateEvents(events: WorkEvent[], input: {
   let played = 0;
   for (const event of events) {
     played += 1;
+    input.ui.setStep(played, events.length || 1);
     input.ui.setStatus(event.status === "error" ? "Failed" : `Running ${played}/${events.length}`);
     input.cast.setFlow(event.action);
     const speed = input.ui.speed();
@@ -93,14 +95,14 @@ export async function playRun(input: {
   focus: (id: EmployeeId | null) => void;
 }): Promise<void> {
   const { ui, cast, handoff, focus } = input;
-  ui.setBusy(true);
+  ui.setStep(0, 7);
   ui.setStatus("Running 0/7");
   ui.toast("The desk is starting.");
   let runId = "";
   try {
     runId = await startRun();
   } catch (error) {
-    ui.setBusy(false);
+    ui.markFailed();
     ui.setStatus("Failed");
     ui.toast(error instanceof Error ? error.message : "The run did not start.");
     return;
@@ -156,6 +158,7 @@ export async function playRun(input: {
         continue;
       }
       played += 1;
+      ui.setStep(Math.min(played, 7), 7);
       ui.setStatus(event.status === "error" ? "Failed" : `Running ${Math.min(played, 7)}/7`);
       cast.setFlow(event.action);
       const speed = ui.speed();
@@ -186,18 +189,20 @@ export async function playRun(input: {
   await Promise.all([poll(), playing]);
   ui.setBusy(false);
   try {
-    const issue = await getLatestIssue();
-    if (issue && issue.runId === runId) {
-      ui.setIssue(issue);
-      ui.setStatus(issue.status === "pending_approval" ? "Waiting for approval" : "Idle");
-      ui.open("issue");
+    const desk = await getDesk();
+    ui.setDesk(desk);
+    if (desk.issue && desk.issue.runId === runId) {
+      ui.setStatus(desk.issue.status === "pending_approval" ? "Waiting for you" : "Idle");
       ui.toast("Draft is ready. Nothing was sent.");
       return;
     }
   } catch {
     ui.toast("The draft finished, but the issue could not be loaded.");
   }
-  if (ui.events().some((event) => event.status === "error")) ui.setStatus("Failed");
+  if (ui.events().some((event) => event.status === "error")) {
+    ui.markFailed();
+    ui.setStatus("Failed");
+  }
 }
 
 function showBubble(event: WorkEvent, speed: 0 | 1 | 2, reduced: boolean): void {

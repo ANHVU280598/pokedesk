@@ -5,7 +5,7 @@ import { parseModelJson } from "./claude";
 import type { CoinFact, MarketSnapshot } from "./market";
 import { PROMPTS } from "./prompts";
 import type { Store } from "./store";
-import { assertNeutral, hasPrediction, PREDICTION_NOTE, reviewDraft } from "./victor";
+import { assertNeutral, hasPrediction, PREDICTION_NOTE, reviewDraft, stripPredictions } from "./victor";
 
 const rexSchema = z.object({
   items: z.array(z.object({ symbol: z.string().min(1), why: z.string().min(1) })).length(3),
@@ -88,6 +88,11 @@ export async function runPipeline(deps: PipelineDeps): Promise<PipelineResult> {
     return result;
   };
 
+  const removed = new Set<string>();
+  const keepPhrase = (phrases: string[]) => {
+    for (const phrase of phrases) removed.add(phrase);
+  };
+
   try {
     await say({
       employee: "maya",
@@ -100,8 +105,9 @@ export async function runPipeline(deps: PipelineDeps): Promise<PipelineResult> {
 
     step = "rex";
     const market = await deps.loadMarket();
+    const fetchedAt = market.fetchedAt || deps.now;
     const picked = await ask("rex", PROMPTS.rex, marketPrompt(market), 700);
-    const stories = storiesFrom(picked.text, market.coins);
+    const stories = storiesFrom(picked.text, market.coins, removed);
     await say({
       employee: "rex",
       action: "research",
@@ -113,7 +119,9 @@ export async function runPipeline(deps: PipelineDeps): Promise<PipelineResult> {
 
     step = "luna";
     const draft = await ask("luna", PROMPTS.luna, `Notes:\n${stories.map((coin) => `${coin.name}: ${coin.why} Source: ${coin.sourceUrl}`).join("\n")}`, 1200);
-    const draftBody = sectionsToText(lunaSchema.parse(parseModelJson(draft.text)).sections);
+    const draftSections = lunaSchema.parse(parseModelJson(draft.text)).sections;
+    const draftBody = sectionsToText(draftSections);
+    keepPhrase(stripPredictions(draftBody).phrases);
     await say({
       employee: "luna",
       action: "draft",
@@ -126,8 +134,10 @@ export async function runPipeline(deps: PipelineDeps): Promise<PipelineResult> {
     step = "victor";
     const checked = await ask("victor", PROMPTS.victor, `Draft:\n${draftBody}\n\nSources:\n${stories.map((coin) => coin.sourceUrl).join("\n")}`, 1200);
     const victorJson = victorSchema.parse(parseModelJson(checked.text));
+    keepPhrase(stripPredictions(victorJson.body).phrases);
     const reviewed = reviewDraft(`${victorJson.body}\n${draftBody}`);
-    const victorSummary = reviewed.removed ? PREDICTION_NOTE : clip(victorJson.summary);
+    keepPhrase(reviewed.phrases);
+    const victorSummary = removed.size > 0 ? PREDICTION_NOTE : clip(victorJson.summary);
     await say({
       employee: "victor",
       action: "factcheck",
@@ -144,22 +154,24 @@ export async function runPipeline(deps: PipelineDeps): Promise<PipelineResult> {
       `Fact check: ${victorSummary}\n\nDraft:\n${reviewed.text}`,
       1200,
     );
-    const revisedRaw = sectionsToText(lunaSchema.parse(parseModelJson(revisedCall.text)).sections);
-    const revised = reviewDraft(revisedRaw);
+    const revisedSections = cleanSections(lunaSchema.parse(parseModelJson(revisedCall.text)).sections, removed);
+    const revised = sectionsToText(revisedSections);
     await say({
       employee: "luna",
       action: "revise",
-      summary: revised.removed ? "Rewrote the flagged line as a plain fact." : "Folded Victor's notes into the draft.",
-      fullText: revised.text,
+      summary: removed.size > 0 ? "Rewrote the flagged line as a plain fact." : "Folded Victor's notes into the draft.",
+      fullText: revised,
       station: "writing",
       status: "done",
     });
 
     step = "ivy";
-    const growth = await ask("ivy", PROMPTS.ivy, `Newsletter:\n${revised.text}`, 400);
+    const growth = await ask("ivy", PROMPTS.ivy, `Newsletter:\n${revised}`, 400);
     const ivy = ivySchema.parse(parseModelJson(growth.text));
     const subject = reviewDraft(ivy.subject);
     const preheader = reviewDraft(ivy.preheader);
+    keepPhrase(subject.phrases);
+    keepPhrase(preheader.phrases);
     await say({
       employee: "ivy",
       action: "monetize",
@@ -174,10 +186,14 @@ export async function runPipeline(deps: PipelineDeps): Promise<PipelineResult> {
       runId: deps.runId,
       subject: subject.text || "Today's market brief",
       preheader: preheader.text || "A short brief from public market data. Not financial advice.",
-      body: revised.text,
+      body: revised,
       footer: FOOTER,
       sources: stories.map((coin) => ({ title: coin.name, url: coin.sourceUrl })),
       affiliates: AFFILIATES,
+      sections: revisedSections,
+      removed: [...removed],
+      fetchedAt,
+      runSource: deps.source,
       status: "pending_approval",
       createdAt: deps.now,
       updatedAt: deps.now,
@@ -196,7 +212,9 @@ export async function runPipeline(deps: PipelineDeps): Promise<PipelineResult> {
     return { ok: true, issue, model };
   } catch (error) {
     const message = error instanceof Error ? error.message : "The run stopped and nothing was sent.";
-    const safe = message.replace(/sk-[A-Za-z0-9_-]+/g, "[redacted]").slice(0, 240);
+    const cleaned = message.replace(/sk-[A-Za-z0-9_-]+/g, "[redacted]");
+    const withHold = /nothing was sent/i.test(cleaned) ? cleaned : `${cleaned} Nothing was sent.`;
+    const safe = `Stopped at ${stepName(step)}. ${withHold}`.slice(0, 280);
     const employee = step === "rex" ? "rex" : step === "luna" ? "luna" : step === "victor" ? "victor" : step === "ivy" ? "ivy" : "maya";
     const station = employee === "rex" ? "data" : employee === "luna" ? "writing" : employee === "victor" ? "factcheck" : employee === "ivy" ? "growth" : "planning";
     await say({
@@ -214,19 +232,43 @@ export async function runPipeline(deps: PipelineDeps): Promise<PipelineResult> {
 
 type Story = CoinFact & { why: string };
 
-function storiesFrom(text: string, coins: CoinFact[]): Story[] {
+function storiesFrom(text: string, coins: CoinFact[], removed: Set<string>): Story[] {
   const parsed = rexSchema.parse(parseModelJson(text));
   return parsed.items.map((item) => {
     const coin = coins.find((entry) => entry.symbol === item.symbol.toLowerCase() || entry.name.toLowerCase() === item.symbol.toLowerCase());
     if (!coin) {
       throw new Error("Claude returned an unknown coin. The run stopped and nothing was sent.");
     }
-    const why = reviewDraft(item.why);
+    const why = stripPredictions(item.why);
+    for (const phrase of why.phrases) removed.add(phrase);
     if (hasPrediction(why.text)) {
       throw new Error("Victor rejected a price prediction. The run stopped and nothing was sent.");
     }
-    return { ...coin, why: why.text };
+    return { ...coin, why: why.text || "Listed on the public CoinGecko feed." };
   });
+}
+
+function cleanSections(sections: { heading: string; text: string }[], removed: Set<string>): { heading: string; text: string }[] {
+  const next: { heading: string; text: string }[] = [];
+  for (const section of sections) {
+    const heading = stripPredictions(section.heading);
+    const body = stripPredictions(section.text);
+    for (const phrase of [...heading.phrases, ...body.phrases]) removed.add(phrase);
+    if (hasPrediction(heading.text) || hasPrediction(body.text)) {
+      throw new Error("Victor rejected a price prediction. The run stopped and nothing was sent.");
+    }
+    if (!heading.text && !body.text) continue;
+    next.push({ heading: heading.text || "Note", text: body.text });
+  }
+  return next;
+}
+
+function stepName(step: string): string {
+  if (step === "rex") return "Rex";
+  if (step === "luna") return "Luna";
+  if (step === "victor") return "Victor";
+  if (step === "ivy") return "Ivy";
+  return "Maya";
 }
 
 function sectionsToText(sections: { heading: string; text: string }[]): string {

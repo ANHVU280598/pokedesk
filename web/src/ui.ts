@@ -1,5 +1,6 @@
-import { EMPLOYEES, employeeById, type EmployeeId, type Issue, type WorkEvent } from "@pulse/shared";
+import { EMPLOYEES, employeeById, type DeskRun, type EmployeeId, type Issue, type WorkEvent } from "@pulse/shared";
 import { renderBrief } from "./brief";
+import { channelDrafts, sectionList } from "./issueView";
 import { MOCK_EVENTS, MOCK_ISSUE } from "./mock";
 
 export type Speed = 1 | 2 | 0;
@@ -21,6 +22,9 @@ export type Ui = {
   onSpeed(handler: (speed: Speed) => void): void;
   onFollow(handler: (on: boolean) => void): void;
   setBusy(on: boolean): void;
+  setStep(step: number, total: number): void;
+  markFailed(): void;
+  setDesk(desk: { issue: Issue | null; run: DeskRun | null; setAside: boolean }): void;
   setDemo(on: boolean): void;
   speed(): Speed;
   autoFollow(): boolean;
@@ -42,13 +46,16 @@ export function mountUi(): Ui {
     renderAll();
     setStatus("Waiting for approval");
     toast("Draft is ready. Nothing was sent.");
-    open("issue");
   };
   let approveHandler: ((issue: Issue) => void | Promise<void>) | null = null;
   let saveHandler: ((issue: Issue) => void | Promise<void>) | null = null;
   let sheet: SheetName = "log";
   let editing = false;
   let profileId: EmployeeId = "maya";
+  let run: DeskRun | null = null;
+  let setAside = false;
+  let busy = false;
+  let lastFailed = false;
 
   const root = document.createElement("div");
   root.id = "overlay";
@@ -128,6 +135,44 @@ export function mountUi(): Ui {
     applyHeight(0);
   }
 
+function paintBrief(): void {
+    renderBrief(issue, events, { run, setAside });
+  }
+
+  function channelBlock(current: Issue): HTMLElement {
+    const wrap = document.createElement("div");
+    wrap.className = "brief-channels";
+    for (const channel of channelDrafts(current)) {
+      const row = document.createElement("p");
+      row.className = "channel-row";
+      const label = document.createElement("span");
+      label.textContent = `${channel.label} · Prepared · not sent`;
+      const copy = document.createElement("button");
+      copy.type = "button";
+      copy.textContent = "Copy";
+      copy.addEventListener("click", () => {
+        void navigator.clipboard?.writeText(channel.payload).then(
+          () => { copy.textContent = "Copied"; },
+          () => { copy.textContent = "Copy failed"; },
+        );
+      });
+      row.append(label, copy);
+      wrap.appendChild(row);
+    }
+    return wrap;
+  }
+
+  function applyRunButton(): void {
+    const button = root.querySelector<HTMLButtonElement>("#run");
+    if (!button) return;
+    if (busy) {
+      button.disabled = true;
+      return;
+    }
+    button.disabled = false;
+    button.textContent = document.body.dataset.demo === "1" ? "Watch" : lastFailed ? "Retry" : "Run";
+  }
+
   function renderAll(): void {
     body.replaceChildren();
     if (sheet === "log") body.appendChild(renderLog());
@@ -196,10 +241,12 @@ export function mountUi(): Ui {
       field.value = `${issue.subject}\n\n${issue.body}`;
       wrap.appendChild(field);
     } else {
-      for (const paragraph of issue.body.split(/\n\n+/)) {
-        const p = document.createElement("p");
-        p.textContent = paragraph;
-        wrap.appendChild(p);
+      for (const section of sectionList(issue)) {
+        const heading = document.createElement("h3");
+        heading.textContent = section.heading;
+        const paragraph = document.createElement("p");
+        paragraph.textContent = section.text;
+        wrap.append(heading, paragraph);
       }
     }
     const foot = document.createElement("p");
@@ -208,13 +255,12 @@ export function mountUi(): Ui {
     wrap.appendChild(foot);
     for (const affiliate of issue.affiliates) {
       const block = document.createElement("p");
-      const link = document.createElement("a");
-      link.href = affiliate.href;
-      link.rel = "nofollow sponsored";
-      link.textContent = affiliate.label;
+      const chip = document.createElement("span");
+      chip.className = "placeholder-chip";
+      chip.textContent = "PLACEHOLDER, replace before use";
       const note = document.createElement("span");
-      note.textContent = ` ${affiliate.disclosure}`;
-      block.append(link, note);
+      note.textContent = ` ${affiliate.label}. ${affiliate.disclosure}`;
+      block.append(chip, note);
       wrap.appendChild(block);
     }
     const row = document.createElement("div");
@@ -229,16 +275,34 @@ export function mountUi(): Ui {
     const approve = document.createElement("button");
     approve.type = "button";
     approve.id = "approve";
-    approve.textContent = "Approve and send";
-    approve.disabled = issue.status !== "pending_approval";
+    approve.textContent = "Approve draft (does not send)";
+    const needsAck = issue.affiliates.length > 0 && issue.status === "pending_approval";
+    if (needsAck) {
+      const label = document.createElement("label");
+      label.className = "ack";
+      const box = document.createElement("input");
+      box.type = "checkbox";
+      box.id = "ack-placeholder";
+      label.append(box, document.createTextNode(" These affiliate links are placeholders. Approving does not send."));
+      wrap.appendChild(label);
+      approve.disabled = true;
+      box.addEventListener("change", () => {
+        approve.disabled = !box.checked;
+      });
+    } else {
+      approve.disabled = issue.status !== "pending_approval";
+    }
     approve.addEventListener("click", () => {
       void approveIssue();
     });
     row.append(edit, approve);
     wrap.appendChild(row);
     const state = document.createElement("p");
-    state.textContent = issue.status === "approved" ? "Approved. Nothing was sent." : "Waiting for approval. Sending stays off.";
+    state.textContent = issue.status === "approved"
+      ? "Not sent anywhere. Payloads are only prepared."
+      : "Not sent anywhere. Waiting for you.";
     wrap.appendChild(state);
+    if (issue.status === "approved") wrap.appendChild(channelBlock(issue));
     return wrap;
   }
 
@@ -413,7 +477,7 @@ export function mountUi(): Ui {
 
   applyHeight(0);
   renderAll();
-  renderBrief(issue, events);
+  paintBrief();
   setStatus(useMock ? "Waiting for approval" : "Idle");
 
   return {
@@ -429,12 +493,12 @@ export function mountUi(): Ui {
     issue: () => issue,
     setEvents(next) {
       events = next;
-      renderBrief(issue, events);
+      paintBrief();
       if (sheet === "log" || sheet === "profile") renderAll();
     },
     setIssue(next) {
       issue = next;
-      renderBrief(issue, events);
+      paintBrief();
       if (sheet === "issue") renderAll();
     },
     onRun(handler) {
@@ -453,15 +517,42 @@ export function mountUi(): Ui {
       followHandler = handler;
     },
     setBusy(on) {
+      busy = on;
+      if (on) lastFailed = false;
       const button = root.querySelector<HTMLButtonElement>("#run");
-      if (button) button.disabled = on;
+      if (button && on) {
+        button.disabled = true;
+        if (!button.textContent?.startsWith("Running")) button.textContent = "Running";
+      }
+      if (!on) applyRunButton();
+    },
+    setStep(step, total) {
+      busy = true;
+      lastFailed = false;
+      const button = root.querySelector<HTMLButtonElement>("#run");
+      if (!button) return;
+      button.disabled = true;
+      button.textContent = `Running step ${step} of ${total}`;
+    },
+    markFailed() {
+      busy = false;
+      lastFailed = true;
+      applyRunButton();
+    },
+    setDesk(desk) {
+      issue = desk.issue;
+      run = desk.run;
+      setAside = desk.setAside;
+      lastFailed = desk.run?.status === "failed";
+      paintBrief();
+      applyRunButton();
+      if (sheet === "issue") renderAll();
     },
     setDemo(on) {
       document.body.dataset.demo = on ? "1" : "0";
       const brand = root.querySelector("#brand");
-      const run = root.querySelector("#run");
       if (brand && on) brand.textContent = "Pulse Desk demo";
-      if (run && on) run.textContent = "Watch";
+      applyRunButton();
     },
     speed: () => speed,
     autoFollow: () => follow,

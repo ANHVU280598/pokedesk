@@ -85,20 +85,114 @@ body {
 .brief-footer,
 .brief-summary,
 .brief-url,
+.brief-subject,
+.brief-preheader,
+.brief-coins,
+.brief-fresh,
+.brief-placeholders,
+.brief-hold,
+.brief-cron,
+.brief-aside,
+.brief-dated,
+.brief-progress,
+.channel-row,
+.brief-section,
 #brief h2,
+#brief h3,
+#brief summary,
 #brief a {
   font-size: 16px;
   line-height: 1.35;
 }
 
-.brief-kicker {
+.brief-kicker,
+.brief-subject,
+.brief-approval,
+.brief-failure {
   margin: 0 0 6px;
   font-weight: 700;
 }
 
-.brief-approval {
-  margin: 0;
-  font-weight: 700;
+.brief-preheader,
+.brief-coins,
+.brief-fresh,
+.brief-placeholders,
+.brief-hold,
+.brief-cron,
+.brief-aside,
+.brief-dated,
+.brief-copy {
+  margin: 0 0 6px;
+}
+
+.brief-failure {
+  padding: 8px;
+  background: #3b1214;
+  color: #ffffff;
+}
+
+.brief-progress {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px 10px;
+  margin: 8px 0 0;
+  padding: 0;
+  list-style: none;
+}
+
+.brief-progress .is-current {
+  font-weight: 800;
+  text-decoration: underline;
+}
+
+.brief-struck {
+  margin: 0 0 8px;
+  padding-left: 18px;
+}
+
+.brief-channels {
+  margin-top: 6px;
+}
+
+.channel-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  margin: 0 0 4px;
+}
+
+.channel-row button,
+.brief-expand,
+.ack {
+  min-height: 44px;
+  font-size: 16px;
+}
+
+.placeholder-chip {
+  display: inline-block;
+  margin: 0 6px 4px 0;
+  padding: 2px 6px;
+  border: 2px solid #8a3b00;
+  background: #fff4e8;
+  color: #141414;
+  font-weight: 800;
+}
+
+#brief[data-sample="1"] {
+  outline: 3px dashed #141414;
+}
+
+.brief-block summary {
+  cursor: pointer;
+}
+
+.brief-block summary h2 {
+  display: inline;
+}
+
+.brief-section h3 {
+  margin: 8px 0 2px;
 }
 
 .brief-block {
@@ -127,12 +221,15 @@ body {
 }
 
 .brief-summary {
-  max-height: 5.2em;
-  overflow: auto;
-  overflow-x: hidden;
-  overflow-wrap: anywhere;
   margin: 0;
-  padding-right: 4px;
+  overflow-wrap: anywhere;
+}
+
+.brief-summary.is-clamped {
+  display: -webkit-box;
+  -webkit-line-clamp: 4;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
 }
 
 .brief-sources {
@@ -755,8 +852,20 @@ body[data-demo="1"] #edit-issue {
     margin-bottom: 4px;
   }
 
-  .brief-summary {
-    max-height: 4.4em;
+  .brief-channels {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+  }
+
+  .channel-row {
+    margin: 0;
+    min-height: 0;
+  }
+
+  .channel-row button {
+    min-height: 32px;
+    padding: 2px 8px;
   }
 
   #debug {
@@ -879,6 +988,22 @@ body[data-demo="1"] #edit-issue {
   }
 
   .brief-url {
+    color: #f7f4ec;
+  }
+
+  #brief[data-sample="1"] {
+    outline-color: #f7f4ec;
+  }
+
+  .placeholder-chip {
+    border-color: #f0c9a0;
+    background: #3a2414;
+    color: #f7f4ec;
+  }
+
+  .channel-row button,
+  .brief-expand {
+    background: #1b1e25;
     color: #f7f4ec;
   }
 

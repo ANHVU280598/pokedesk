@@ -12,6 +12,7 @@ const market: MarketSnapshot = {
     { id: "ethereum", name: "Ethereum", symbol: "eth", change24h: -0.4, volume: 80, sourceUrl: "https://www.coingecko.com/en/coins/ethereum" },
     { id: "solana", name: "Solana", symbol: "sol", change24h: 3.1, volume: 40, sourceUrl: "https://www.coingecko.com/en/coins/solana" },
   ],
+  fetchedAt: 1_700_000_000_000,
 };
 
 function scripted(map: Record<string, string>, calls: { n: number }): ClaudeClient {
@@ -27,6 +28,7 @@ describe("Victor", () => {
   it("rejects a draft that says a coin will 10x", () => {
     const reviewed = reviewDraft("Bitcoin volume rose. This coin will 10x by Friday.");
     expect(reviewed.removed).toBe(true);
+    expect(reviewed.phrases.some((phrase) => /10x/i.test(phrase))).toBe(true);
     expect(reviewed.text.toLowerCase()).not.toContain("10x");
     expect(hasPrediction(reviewed.text)).toBe(false);
     expect(hasPrediction("this coin will 10x")).toBe(true);
@@ -66,6 +68,9 @@ describe("pipeline", () => {
     expect(result.ok).toBe(true);
     if (!result.ok) return;
     expect(result.issue.body.toLowerCase()).not.toContain("10x");
+    expect(result.issue.removed.some((phrase) => /10x/i.test(phrase))).toBe(true);
+    expect(result.issue.sections.length).toBeGreaterThan(0);
+    expect(result.issue.fetchedAt).toBe(1_700_000_000_000);
     expect(result.issue.subject.toLowerCase()).not.toContain("10x");
     expect(result.issue.status).toBe("pending_approval");
     expect(result.issue.affiliates).toEqual(AFFILIATES);
@@ -92,7 +97,9 @@ describe("pipeline", () => {
     });
     expect(result.ok).toBe(false);
     if (result.ok) return;
+    expect(result.error).toMatch(/Stopped at Rex/);
     expect(result.error).toMatch(/CoinGecko/);
+    expect(result.error).toMatch(/nothing was sent/i);
     expect(await store.latestIssue(false)).toBeNull();
     expect(calls.n).toBe(0);
     const run = await store.getRun("run-2");
@@ -149,6 +156,10 @@ describe("publish", () => {
       footer: "Not financial advice.",
       sources: [],
       affiliates: AFFILIATES,
+      sections: [{ heading: "Summary", text: "Body" }],
+      removed: [],
+      fetchedAt: 1,
+      runSource: "manual",
       status: "approved",
       createdAt: 1,
       updatedAt: 1,

@@ -1,4 +1,4 @@
-import type { AffiliateBlock, EmployeeId, EventStatus, Issue, IssueStatus, SourceLink, StationId, WorkEvent } from "@pulse/shared";
+import type { AffiliateBlock, EmployeeId, EventStatus, Issue, IssueSection, IssueStatus, RunSource, SourceLink, StationId, WorkEvent } from "@pulse/shared";
 
 export type RunRow = {
   id: string;
@@ -15,6 +15,8 @@ export interface Store {
   createRun(row: { id: string; source: string; startedAt: number }): Promise<void>;
   finishRun(id: string, status: "succeeded" | "failed", error: string | null, tokens: number, model: string | null): Promise<void>;
   getRun(id: string): Promise<RunRow | null>;
+  latestRun(): Promise<RunRow | null>;
+  pendingBefore(createdAt: number): Promise<number>;
   tryLock(runId: string, now: number, until: number): Promise<boolean>;
   releaseLock(runId: string): Promise<void>;
   dayTokens(day: string): Promise<number>;
@@ -49,6 +51,12 @@ export function createMemoryStore(): Store {
     },
     async getRun(id) {
       return runs.get(id) ?? null;
+    },
+    async latestRun() {
+      return [...runs.values()].sort((a, b) => b.startedAt - a.startedAt)[0] ?? null;
+    },
+    async pendingBefore(createdAt) {
+      return issues.filter((issue) => issue.status === "pending_approval" && issue.createdAt < createdAt).length;
     },
     async tryLock(runId, now, until) {
       if (lock && lock.until > now) return false;
@@ -89,7 +97,10 @@ export function createMemoryStore(): Store {
       const issue = issues.find((item) => item.id === id);
       if (!issue) return null;
       if (patch.subject !== undefined) issue.subject = patch.subject;
-      if (patch.body !== undefined) issue.body = patch.body;
+      if (patch.body !== undefined) {
+        issue.body = patch.body;
+        issue.sections = sectionsFromBody(patch.body);
+      }
       if (patch.status !== undefined) issue.status = patch.status;
       issue.updatedAt = patch.updatedAt;
       return issue;
@@ -140,6 +151,33 @@ export function createD1Store(db: D1Database): Store {
         model: row.model,
       };
     },
+    async latestRun() {
+      const row = await db.prepare("SELECT id, status, source, started_at, finished_at, error, tokens, model FROM runs ORDER BY started_at DESC LIMIT 1").first<{
+        id: string;
+        status: RunRow["status"];
+        source: string;
+        started_at: number;
+        finished_at: number | null;
+        error: string | null;
+        tokens: number;
+        model: string | null;
+      }>();
+      if (!row) return null;
+      return {
+        id: row.id,
+        status: row.status,
+        source: row.source,
+        startedAt: row.started_at,
+        finishedAt: row.finished_at,
+        error: row.error,
+        tokens: row.tokens,
+        model: row.model,
+      };
+    },
+    async pendingBefore(createdAt) {
+      const row = await db.prepare("SELECT COUNT(*) AS n FROM issues WHERE status = 'pending_approval' AND created_at < ?1").bind(createdAt).first<{ n: number }>();
+      return row?.n ?? 0;
+    },
     async tryLock(runId, now, until) {
       const result = await db.prepare("UPDATE run_lock SET run_id = ?1, until_ts = ?2 WHERE id = 1 AND (run_id IS NULL OR until_ts < ?3)").bind(runId, until, now).run();
       return (result.meta.changes ?? 0) > 0;
@@ -168,8 +206,8 @@ export function createD1Store(db: D1Database): Store {
       return index < 0 ? ordered : ordered.slice(index + 1);
     },
     async saveIssue(issue) {
-      await db.prepare("INSERT INTO issues (id, run_id, subject, preheader, body, footer, sources_json, affiliates_json, status, created_at, updated_at) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11)")
-        .bind(issue.id, issue.runId, issue.subject, issue.preheader, issue.body, issue.footer, JSON.stringify(issue.sources), JSON.stringify(issue.affiliates), issue.status, issue.createdAt, issue.updatedAt)
+      await db.prepare("INSERT INTO issues (id, run_id, subject, preheader, body, footer, sources_json, affiliates_json, status, created_at, updated_at, detail_json) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12)")
+        .bind(issue.id, issue.runId, issue.subject, issue.preheader, issue.body, issue.footer, JSON.stringify(issue.sources), JSON.stringify(issue.affiliates), issue.status, issue.createdAt, issue.updatedAt, detailJson(issue))
         .run();
     },
     async getIssue(id) {
@@ -190,11 +228,12 @@ export function createD1Store(db: D1Database): Store {
         ...current,
         subject: patch.subject ?? current.subject,
         body: patch.body ?? current.body,
+        sections: patch.body !== undefined ? sectionsFromBody(patch.body) : current.sections,
         status: (patch.status as IssueStatus | undefined) ?? current.status,
         updatedAt: patch.updatedAt,
       };
-      await db.prepare("UPDATE issues SET subject = ?2, body = ?3, status = ?4, updated_at = ?5 WHERE id = ?1")
-        .bind(id, next.subject, next.body, next.status, next.updatedAt)
+      await db.prepare("UPDATE issues SET subject = ?2, body = ?3, status = ?4, updated_at = ?5, detail_json = ?6 WHERE id = ?1")
+        .bind(id, next.subject, next.body, next.status, next.updatedAt, detailJson(next))
         .run();
       return next;
     },
@@ -213,6 +252,7 @@ type IssueRow = {
   status: IssueStatus;
   created_at: number;
   updated_at: number;
+  detail_json?: string | null;
 };
 
 function toEvent(row: EventRow): WorkEvent {
@@ -230,6 +270,7 @@ function toEvent(row: EventRow): WorkEvent {
 }
 
 function toIssue(row: IssueRow): Issue {
+  const detail = readDetail(row.detail_json);
   return {
     id: row.id,
     runId: row.run_id,
@@ -239,8 +280,59 @@ function toIssue(row: IssueRow): Issue {
     footer: row.footer,
     sources: JSON.parse(row.sources_json) as SourceLink[],
     affiliates: JSON.parse(row.affiliates_json) as AffiliateBlock[],
+    sections: detail.sections.length ? detail.sections : sectionsFromBody(row.body),
+    removed: detail.removed,
+    fetchedAt: detail.fetchedAt,
+    runSource: detail.runSource,
     status: row.status,
     createdAt: row.created_at,
     updatedAt: row.updated_at,
   };
+}
+
+function sectionsFromBody(body: string): IssueSection[] {
+  const parts = body.split(/\n\n+/).map((part) => part.trim()).filter(Boolean);
+  return parts.map((text, index) => {
+    const [first, ...rest] = text.split("\n");
+    if (rest.length > 0 && first.length < 80) {
+      return { heading: first, text: rest.join("\n").trim() };
+    }
+    return { heading: parts.length > 1 ? `Part ${index + 1}` : "Summary", text };
+  });
+}
+
+function detailJson(issue: Issue): string {
+  return JSON.stringify({
+    sections: issue.sections,
+    removed: issue.removed,
+    fetchedAt: issue.fetchedAt,
+    runSource: issue.runSource,
+  });
+}
+
+function readDetail(raw: string | null | undefined): Pick<Issue, "sections" | "removed" | "fetchedAt" | "runSource"> {
+  const empty = { sections: [] as IssueSection[], removed: [] as string[], fetchedAt: null, runSource: "unknown" as RunSource };
+  if (!raw) return empty;
+  try {
+    const data = JSON.parse(raw) as {
+      sections?: { heading?: unknown; text?: unknown }[];
+      removed?: unknown[];
+      fetchedAt?: unknown;
+      runSource?: unknown;
+    };
+    const sections = Array.isArray(data.sections)
+      ? data.sections.flatMap((section) => {
+          if (!section || typeof section.heading !== "string" || typeof section.text !== "string") return [];
+          return [{ heading: section.heading, text: section.text }];
+        })
+      : [];
+    const removed = Array.isArray(data.removed)
+      ? data.removed.filter((item): item is string => typeof item === "string" && item.trim().length > 0)
+      : [];
+    const fetchedAt = typeof data.fetchedAt === "number" ? data.fetchedAt : null;
+    const runSource: RunSource = data.runSource === "manual" || data.runSource === "cron" ? data.runSource : "unknown";
+    return { sections, removed, fetchedAt, runSource };
+  } catch {
+    return empty;
+  }
 }
