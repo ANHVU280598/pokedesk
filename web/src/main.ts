@@ -1,5 +1,5 @@
 import type { EmployeeId } from "@pulse/shared";
-import { approveIssue, getEvents, getLatestIssue, saveIssue } from "./api";
+import { approveIssue, getEvents, getLatestIssue, prepareIssuePublish, saveIssue } from "./api";
 import { createCast, type Cast } from "./characters";
 import { mountDebug } from "./debug";
 import { createHandoff } from "./handoff";
@@ -40,8 +40,9 @@ ui.onSave(async (issue) => {
 ui.onApprove(async (issue) => {
   const saved = await approveIssue(issue.id);
   ui.setIssue(saved);
+  const plan = await prepareIssuePublish(saved.id);
   ui.setStatus("Idle");
-  ui.toast("Approved. Nothing was sent.");
+  ui.toast(plan.channels.some((channel) => channel.sent) ? "A channel reported a send." : "Approved. Nothing was sent.");
 });
 
 const context = office.renderer.getContext();
