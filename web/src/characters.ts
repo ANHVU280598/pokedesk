@@ -15,6 +15,7 @@ import {
 } from "three";
 import { CSS2DObject, CSS2DRenderer } from "three/addons/renderers/CSS2DRenderer.js";
 import { EMPLOYEES, STATIONS, type EmployeeId, type StationId } from "@pulse/shared";
+import { FLOW_STEPS, highlightFlow } from "./flow";
 
 export type Anim = "idle" | "walk" | "working" | "done" | "error";
 
@@ -62,6 +63,7 @@ export type Cast = {
   idFromObject(object: Object3D): EmployeeId | null;
   setTimeScale(scale: number): void;
   setReducedMotion(on: boolean): void;
+  setFlow(action: string | null): void;
 };
 
 const _focus = new Vector3();
@@ -177,6 +179,9 @@ export function createCast(parent: Group, scene: Scene, camera: Camera): Cast {
     },
     setReducedMotion(on) {
       reduced = on;
+    },
+    setFlow(action) {
+      highlightFlow(action);
     },
   };
 }
@@ -350,20 +355,13 @@ function buildActor(
   icon.visible = false;
   bob.add(icon);
 
-  const name = document.createElement("div");
-  const pill = document.createElement("div");
-  pill.className = "tag";
-  pill.textContent = labelFor(id);
-  pill.style.borderLeftColor = color;
-  name.appendChild(pill);
-  const nameTag = new CSS2DObject(name);
-  nameTag.position.set(0, 1.95, 0);
+  const nameTag = namePlate(id, color);
   bob.add(nameTag);
 
   const ok = badge("✓", "#2F7D6D");
   const bad = badge("!", "#B42318");
-  ok.position.set(0, 2.25, 0);
-  bad.position.set(0, 2.25, 0);
+  ok.position.set(0.62, 1.45, 0);
+  bad.position.set(0.62, 1.45, 0);
   bob.add(ok, bad);
 
   const dustMat = material("#D9D3C7");
@@ -493,6 +491,48 @@ function badge(text: string, color: string): CSS2DObject {
 
 function labelFor(id: EmployeeId): string {
   return EMPLOYEES.find((employee) => employee.id === id)?.name ?? id;
+}
+
+function namePlate(id: EmployeeId, color: string): CSS2DObject {
+  const plate = document.createElement("div");
+  plate.className = "plate";
+  const steps = document.createElement("div");
+  steps.className = "steps";
+  for (const step of FLOW_STEPS) {
+    if (step.employee !== id) continue;
+    const row = document.createElement("div");
+    row.className = "step";
+    row.dataset.flow = String(step.n);
+    row.style.setProperty("--step", color);
+    if (step.whenActive) {
+      row.dataset.when = "active";
+      row.hidden = true;
+    }
+    const chip = document.createElement("span");
+    chip.className = "chip";
+    chip.textContent = String(step.n);
+    chip.style.background = color;
+    const copy = document.createElement("span");
+    copy.className = "step-copy";
+    copy.append(document.createTextNode(step.title));
+    if (step.detail) {
+      const detail = document.createElement("small");
+      detail.textContent = step.detail;
+      copy.append(detail);
+    }
+    row.append(chip, copy);
+    steps.append(row);
+  }
+  const pill = document.createElement("div");
+  pill.className = "tag";
+  pill.textContent = labelFor(id);
+  pill.style.borderLeftColor = color;
+  plate.append(steps, pill);
+  const tag = new CSS2DObject(plate);
+  tag.center.set(0.5, 1);
+  tag.position.set(0, 2.28, 0);
+  tag.renderOrder = 3;
+  return tag;
 }
 
 function material(color: string): MeshStandardMaterial {

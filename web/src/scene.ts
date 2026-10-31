@@ -25,6 +25,7 @@ import {
 } from "three";
 import { RoundedBoxGeometry } from "three/addons/geometries/RoundedBoxGeometry.js";
 import { PALETTE, STATIONS, type StationId } from "@pulse/shared";
+import { mountOperationFlow } from "./flow";
 
 export type ThemeMode = "light" | "dark";
 
@@ -163,6 +164,7 @@ export function createOffice(canvas: HTMLCanvasElement): Office {
   const propRoot = new Group();
   scene.add(propRoot);
   const animated = buildProps(propRoot, materials);
+  const flow = mountOperationFlow(scene);
 
   const target = new Vector3(0, 0.2, 0);
   const desiredTarget = target.clone();
@@ -230,6 +232,7 @@ export function createOffice(canvas: HTMLCanvasElement): Office {
     const meta = document.querySelector('meta[name="theme-color"]');
     meta?.setAttribute("content", fog);
     document.body.style.background = fog;
+    flow.setTheme(next);
   }
 
   function clientNdc(clientX: number, clientY: number): Vector2 {
@@ -309,6 +312,7 @@ export function createOffice(canvas: HTMLCanvasElement): Office {
     target.lerp(desiredTarget, k);
     placeCamera();
     animated(clock.t);
+    flow.pulse(clock.t);
   }
 
   function render(): void {

@@ -62,6 +62,7 @@ async function animateEvents(events: WorkEvent[], input: {
   for (const event of events) {
     played += 1;
     input.ui.setStatus(event.status === "error" ? "Failed" : `Running ${played}/${events.length}`);
+    input.cast.setFlow(event.action);
     const speed = input.ui.speed();
     input.cast.setTimeScale(speed === 0 ? 0 : speed);
     if (input.ui.autoFollow()) input.focus(event.employee);
@@ -156,6 +157,7 @@ export async function playRun(input: {
       }
       played += 1;
       ui.setStatus(event.status === "error" ? "Failed" : `Running ${Math.min(played, 7)}/7`);
+      cast.setFlow(event.action);
       const speed = ui.speed();
       cast.setTimeScale(speed === 0 ? 0 : speed);
       if (ui.autoFollow()) focus(event.employee);
