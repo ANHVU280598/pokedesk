@@ -68,6 +68,8 @@ export type Office = {
   raycast(clientX: number, clientY: number, objects: Object3D[]): Intersection[];
   project(point: Vector3): { x: number; y: number; visible: boolean };
   follow(point: Vector3 | null, radius?: number): void;
+  track(point: Vector3): void;
+  setTapHandler(handler: (clientX: number, clientY: number) => void): void;
   nudge(theta: number, phi: number, radius: number): void;
   stats(): { calls: number; radius: number; phi: number; theta: number };
 };
@@ -177,6 +179,7 @@ export function createOffice(canvas: HTMLCanvasElement): Office {
   let pinchStart = 0;
   let pinchRadius = radius;
   let dragged = 0;
+  let tapHandler: ((clientX: number, clientY: number) => void) | null = null;
   const clock = { t: 0 };
 
   function placeCamera(): void {
@@ -264,8 +267,7 @@ export function createOffice(canvas: HTMLCanvasElement): Office {
     pointers.delete(event.pointerId);
     if (pointers.size < 2) pinchStart = 0;
     if (dragged < 6 && event.type === "pointerup") {
-      const hits = raycast(event.clientX, event.clientY, [floor]);
-      if (hits.length > 0) resetView();
+      tapHandler?.(event.clientX, event.clientY);
     }
   };
   canvas.addEventListener("pointerup", endPointer);
@@ -354,6 +356,13 @@ export function createOffice(canvas: HTMLCanvasElement): Office {
       desiredTarget.copy(point);
       desiredTarget.y = 1;
       desiredRadius = MathUtils.clamp(nextRadius, RADIUS_MIN, RADIUS_MAX);
+    },
+    track(point: Vector3) {
+      desiredTarget.copy(point);
+      desiredTarget.y = 1.1;
+    },
+    setTapHandler(handler) {
+      tapHandler = handler;
     },
     nudge(nextTheta, nextPhi, nextRadius) {
       desiredTheta = nextTheta;
