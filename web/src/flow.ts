@@ -15,27 +15,58 @@ export type FlowStep = {
   action: string;
   title: string;
   detail?: string;
+  phoneTitle?: string;
+  phoneDetail?: string;
   whenActive?: boolean;
 };
 
 export const FLOW_STEPS: FlowStep[] = [
-  { n: 1, employee: "maya", action: "assign", title: "Assign today's issue" },
+  {
+    n: 1,
+    employee: "maya",
+    action: "assign",
+    title: "Assign today's issue",
+    phoneTitle: "Assign\ntoday's issue",
+  },
   {
     n: 2,
     employee: "rex",
     action: "research",
     title: "Search CoinGecko",
     detail: "trending and top movers",
+    phoneTitle: "Search\nCoinGecko",
+    phoneDetail: "trending and\ntop movers",
   },
-  { n: 3, employee: "luna", action: "draft", title: "Write the summary" },
-  { n: 4, employee: "victor", action: "factcheck", title: "Fact-check, no predictions" },
-  { n: 5, employee: "luna", action: "revise", title: "Revise the summary", whenActive: true },
+  {
+    n: 3,
+    employee: "luna",
+    action: "draft",
+    title: "Write the summary",
+    phoneTitle: "Write the\nsummary",
+  },
+  {
+    n: 4,
+    employee: "victor",
+    action: "factcheck",
+    title: "Fact-check, no predictions",
+    phoneTitle: "Fact-check,\nno predictions",
+  },
+  {
+    n: 5,
+    employee: "luna",
+    action: "revise",
+    title: "Revise the summary",
+    phoneTitle: "Revise the\nsummary",
+    whenActive: true,
+  },
   {
     n: 6,
     employee: "ivy",
     action: "monetize",
     title: "Subject line",
     detail: "disclosed affiliates",
+    phoneTitle: "Subject line",
+    phoneDetail: "disclosed\naffiliates",
   },
   {
     n: 7,
@@ -43,6 +74,8 @@ export const FLOW_STEPS: FlowStep[] = [
     action: "finish",
     title: "Ready for approval",
     detail: "lands in the outbox",
+    phoneTitle: "Ready for\napproval",
+    phoneDetail: "lands in\nthe outbox",
   },
 ];
 

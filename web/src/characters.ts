@@ -489,6 +489,18 @@ function badge(text: string, color: string): CSS2DObject {
   return new CSS2DObject(wrap);
 }
 
+function stepCopy(kind: string, title: string, detail?: string): HTMLSpanElement {
+  const copy = document.createElement("span");
+  copy.className = `step-copy ${kind}`;
+  copy.append(document.createTextNode(title));
+  if (detail) {
+    const note = document.createElement("small");
+    note.textContent = detail;
+    copy.append(note);
+  }
+  return copy;
+}
+
 function labelFor(id: EmployeeId): string {
   return EMPLOYEES.find((employee) => employee.id === id)?.name ?? id;
 }
@@ -496,6 +508,8 @@ function labelFor(id: EmployeeId): string {
 function namePlate(id: EmployeeId, color: string): CSS2DObject {
   const plate = document.createElement("div");
   plate.className = "plate";
+  const fit = document.createElement("div");
+  fit.className = "plate-fit";
   const steps = document.createElement("div");
   steps.className = "steps";
   for (const step of FLOW_STEPS) {
@@ -512,22 +526,15 @@ function namePlate(id: EmployeeId, color: string): CSS2DObject {
     chip.className = "chip";
     chip.textContent = String(step.n);
     chip.style.background = color;
-    const copy = document.createElement("span");
-    copy.className = "step-copy";
-    copy.append(document.createTextNode(step.title));
-    if (step.detail) {
-      const detail = document.createElement("small");
-      detail.textContent = step.detail;
-      copy.append(detail);
-    }
-    row.append(chip, copy);
+    row.append(chip, stepCopy("step-desk", step.title, step.detail), stepCopy("step-phone", step.phoneTitle ?? step.title, step.phoneDetail ?? step.detail));
     steps.append(row);
   }
   const pill = document.createElement("div");
   pill.className = "tag";
   pill.textContent = labelFor(id);
   pill.style.borderLeftColor = color;
-  plate.append(steps, pill);
+  fit.append(steps, pill);
+  plate.append(fit);
   const tag = new CSS2DObject(plate);
   tag.center.set(0.5, 1);
   tag.position.set(0, 2.28, 0);

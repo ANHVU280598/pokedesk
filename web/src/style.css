@@ -51,6 +51,13 @@ body {
   pointer-events: none;
 }
 
+.plate-fit {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+}
+
 .steps {
   display: flex;
   flex-direction: column;
@@ -100,6 +107,10 @@ body {
   display: block;
   font-size: 12px;
   font-weight: 600;
+}
+
+.step-phone {
+  display: none;
 }
 
 .tag {
@@ -570,17 +581,55 @@ body[data-demo="1"] #edit-issue {
     padding: 0;
   }
 
+  .plate-fit {
+    transform: scale(0.92);
+    transform-origin: center bottom;
+  }
+
   .step {
-    max-width: 150px;
-    padding-right: 7px;
+    max-width: 118px;
+    align-items: flex-start;
+    gap: 4px;
+    padding: 3px 6px 3px 3px;
+    border-radius: 14px;
   }
 
-  .step-copy {
-    font-size: 12px;
+  .step-desk {
+    display: none;
   }
 
-  .step-copy small {
+  .step-phone {
+    display: block;
+    max-width: 92px;
     font-size: 11px;
+    line-height: 1.15;
+    white-space: pre-line;
+    overflow: visible;
+  }
+
+  .step-phone small {
+    display: block;
+    margin-top: 1px;
+    font-size: 10px;
+    line-height: 1.15;
+    white-space: pre-line;
+  }
+
+  .chip {
+    flex-basis: 16px;
+    width: 16px;
+    height: 16px;
+    margin-top: 1px;
+    font-size: 10px;
+  }
+
+  .tag {
+    font-size: 13px;
+    padding: 2px 8px;
+  }
+
+  .flow-stop {
+    display: none;
   }
 }
 
