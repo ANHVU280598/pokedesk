@@ -20,6 +20,7 @@ export type Ui = {
   onSpeed(handler: (speed: Speed) => void): void;
   onFollow(handler: (on: boolean) => void): void;
   setBusy(on: boolean): void;
+  setDemo(on: boolean): void;
   speed(): Speed;
   autoFollow(): boolean;
 };
@@ -450,6 +451,13 @@ export function mountUi(): Ui {
     setBusy(on) {
       const button = root.querySelector<HTMLButtonElement>("#run");
       if (button) button.disabled = on;
+    },
+    setDemo(on) {
+      document.body.dataset.demo = on ? "1" : "0";
+      const brand = root.querySelector("#brand");
+      const run = root.querySelector("#run");
+      if (brand && on) brand.textContent = "Pulse Desk demo";
+      if (run && on) run.textContent = "Watch";
     },
     speed: () => speed,
     autoFollow: () => follow,

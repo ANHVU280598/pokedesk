@@ -3,7 +3,7 @@ import { approveIssue, getEvents, getLatestIssue, prepareIssuePublish, saveIssue
 import { createCast, type Cast } from "./characters";
 import { mountDebug } from "./debug";
 import { createHandoff } from "./handoff";
-import { placeBubbles, playRun } from "./playback";
+import { placeBubbles, playRun, watchEvents } from "./playback";
 import { createOffice, type Office } from "./scene";
 import { mountUi, type Ui } from "./ui";
 import "./style.css";
@@ -17,20 +17,21 @@ if (!canvas || !boot) {
 const office = createOffice(canvas);
 const cast = createCast(office.actorRoot, office.scene, office.camera);
 const handoff = createHandoff(office.scene);
+const demo = window.location.pathname === "/demo" || window.location.hash === "#demo";
 const ui = mountUi();
+if (demo) ui.setDemo(true);
 mountDebug(cast);
 ui.onSpeed((speed) => cast.setTimeScale(speed === 0 ? 0 : speed));
+const focusOn = (id: EmployeeId | null) => {
+  focused = id;
+  if (id) office.follow(cast.focusPoint(id), 16);
+};
 ui.onRun(() => {
-  void playRun({
-    ui,
-    cast,
-    office,
-    handoff,
-    focus: (id) => {
-      focused = id;
-      if (id) office.follow(cast.focusPoint(id), 16);
-    },
-  });
+  if (demo) {
+    void watchEvents(ui.events(), { ui, cast, handoff, focus: focusOn });
+    return;
+  }
+  void playRun({ ui, cast, office, handoff, focus: focusOn });
 });
 ui.onSave(async (issue) => {
   const saved = await saveIssue(issue.id, issue.subject, issue.body);
@@ -97,7 +98,7 @@ function frame(now: number): void {
 
 void (async () => {
   try {
-    const issue = await getLatestIssue();
+    const issue = await getLatestIssue(demo);
     if (!issue) return;
     ui.setIssue(issue);
     ui.setEvents(await getEvents(issue.runId));

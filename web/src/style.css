@@ -271,6 +271,12 @@ body {
   opacity: 0.55;
 }
 
+body[data-demo="1"] #debug,
+body[data-demo="1"] #approve,
+body[data-demo="1"] #edit-issue {
+  display: none;
+}
+
 #sheet {
   position: fixed;
   z-index: 7;

@@ -33,6 +33,57 @@ export function placeBubbles(project: (id: EmployeeId) => { x: number; y: number
   }
 }
 
+export async function watchEvents(events: WorkEvent[], input: {
+  ui: Ui;
+  cast: Cast;
+  handoff: Handoff;
+  focus: (id: EmployeeId | null) => void;
+}): Promise<void> {
+  if (events.length === 0) {
+    input.ui.toast("No approved issue to watch yet.");
+    return;
+  }
+  input.ui.setBusy(true);
+  input.ui.setStatus(`Running 0/${events.length}`);
+  await animateEvents(events, input);
+  input.ui.setBusy(false);
+  input.ui.setStatus("Idle");
+}
+
+async function animateEvents(events: WorkEvent[], input: {
+  ui: Ui;
+  cast: Cast;
+  handoff: Handoff;
+  focus: (id: EmployeeId | null) => void;
+}): Promise<void> {
+  const reduced = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+  let previous: EmployeeId | null = null;
+  let played = 0;
+  for (const event of events) {
+    played += 1;
+    input.ui.setStatus(event.status === "error" ? "Failed" : `Running ${played}/${events.length}`);
+    const speed = input.ui.speed();
+    input.cast.setTimeScale(speed === 0 ? 0 : speed);
+    if (input.ui.autoFollow()) input.focus(event.employee);
+    if (previous && previous !== event.employee) {
+      const ms = reduced || speed === 0 ? 0 : speed === 2 ? 500 : 1000;
+      await input.handoff.fly(anchor(input.cast, previous), anchor(input.cast, event.employee), employeeById(previous).color, employeeById(event.employee).color, ms);
+    }
+    await input.cast.moveTo(event.employee, event.station);
+    if (event.status === "error") {
+      input.cast.play(event.employee, "error");
+      showBubble(event, speed, reduced);
+      input.ui.toast(event.summary);
+      return;
+    }
+    input.cast.play(event.employee, "working");
+    showBubble(event, speed, reduced);
+    await sleep(hold(speed, reduced));
+    input.cast.play(event.employee, "done");
+    previous = event.employee;
+  }
+}
+
 export async function playRun(input: {
   ui: Ui;
   cast: Cast;

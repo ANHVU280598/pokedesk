@@ -36,8 +36,9 @@ export async function getRun(runId: string): Promise<{ status: string; error: st
   return { status: run?.status ?? "running", error: run?.error ?? null };
 }
 
-export async function getLatestIssue(): Promise<Issue | null> {
-  const data = await read(await fetch(`${root}/api/issues/latest`));
+export async function getLatestIssue(approvedOnly = false): Promise<Issue | null> {
+  const query = approvedOnly ? "?public=1" : "";
+  const data = await read(await fetch(`${root}/api/issues/latest${query}`));
   return (data.issue as Issue | null) ?? null;
 }
 
