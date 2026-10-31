@@ -5,6 +5,7 @@ import { mountDebug } from "./debug";
 import { createHandoff } from "./handoff";
 import { placeBubbles, playRun, watchEvents } from "./playback";
 import { createOffice, type Office } from "./scene";
+import { mountBrief } from "./brief";
 import { mountUi, type Ui } from "./ui";
 import "./style.css";
 
@@ -19,6 +20,8 @@ const cast = createCast(office.actorRoot, office.scene, office.camera);
 const handoff = createHandoff(office.scene);
 const demo = window.location.pathname === "/demo" || window.location.hash === "#demo";
 const ui = mountUi();
+mountBrief();
+ui.setIssue(ui.issue());
 if (demo) ui.setDemo(true);
 mountDebug(cast);
 ui.onSpeed((speed) => cast.setTimeScale(speed === 0 ? 0 : speed));
@@ -99,11 +102,15 @@ function frame(now: number): void {
 void (async () => {
   try {
     const issue = await getLatestIssue(demo);
-    if (!issue) return;
+    if (!issue) {
+      ui.setIssue(null);
+      return;
+    }
     ui.setIssue(issue);
     ui.setEvents(await getEvents(issue.runId));
     ui.setStatus(issue.status === "pending_approval" ? "Waiting for approval" : "Idle");
   } catch {
+    ui.setIssue(null);
     ui.toast("The desk is offline. You can still look around.");
   }
 })();

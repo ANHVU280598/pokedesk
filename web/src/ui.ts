@@ -1,4 +1,5 @@
 import { EMPLOYEES, employeeById, type EmployeeId, type Issue, type WorkEvent } from "@pulse/shared";
+import { renderBrief } from "./brief";
 import { MOCK_EVENTS, MOCK_ISSUE } from "./mock";
 
 export type Speed = 1 | 2 | 0;
@@ -412,6 +413,7 @@ export function mountUi(): Ui {
 
   applyHeight(0);
   renderAll();
+  renderBrief(issue, events);
   setStatus(useMock ? "Waiting for approval" : "Idle");
 
   return {
@@ -427,10 +429,12 @@ export function mountUi(): Ui {
     issue: () => issue,
     setEvents(next) {
       events = next;
+      renderBrief(issue, events);
       if (sheet === "log" || sheet === "profile") renderAll();
     },
     setIssue(next) {
       issue = next;
+      renderBrief(issue, events);
       if (sheet === "issue") renderAll();
     },
     onRun(handler) {

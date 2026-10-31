@@ -74,11 +74,16 @@ export function createCast(parent: Group, scene: Scene, camera: Camera): Cast {
   const ink = material("#1D1D1B");
   const actors = new Map<EmployeeId, Actor>();
   const labels = new CSS2DRenderer();
-  labels.setSize(window.innerWidth, window.innerHeight);
   labels.domElement.className = "labels";
   labels.domElement.style.pointerEvents = "none";
-  document.body.appendChild(labels.domElement);
-  window.addEventListener("resize", () => labels.setSize(window.innerWidth, window.innerHeight));
+  const stage = document.querySelector("#stage") ?? document.body;
+  stage.appendChild(labels.domElement);
+  const syncLabels = () => {
+    labels.setSize(Math.max(stage.clientWidth, 1), Math.max(stage.clientHeight, 1));
+  };
+  syncLabels();
+  window.addEventListener("resize", syncLabels);
+  if (typeof ResizeObserver !== "undefined") new ResizeObserver(syncLabels).observe(stage);
 
   let timeScale = 1;
   let reduced = window.matchMedia("(prefers-reduced-motion: reduce)").matches;

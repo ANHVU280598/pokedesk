@@ -195,16 +195,18 @@ export function createOffice(canvas: HTMLCanvasElement): Office {
   }
 
   function resize(): void {
-    const width = window.innerWidth;
-    const height = Math.max(window.innerHeight, 1);
+    const width = Math.max(canvas.clientWidth, 1);
+    const height = Math.max(canvas.clientHeight, 1);
+    const narrow = window.innerWidth < 700;
     renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 2));
     renderer.setSize(width, height, false);
-    camera.aspect = width / height;
-    const span = width < 520 ? 34 : 46;
-    const dist = width < 520 ? 40 : 36;
+    camera.aspect = width / Math.max(height, 1);
+    const span = narrow ? 38 : 46;
+    const dist = narrow ? 36 : 34;
     const half = Math.atan(span / 2 / dist);
-    const vfov = 2 * Math.atan(Math.tan(half) / Math.max(camera.aspect, 0.42));
-    camera.fov = MathUtils.clamp(MathUtils.radToDeg(vfov), 36, width < 520 ? 74 : 58);
+    const vfov = 2 * Math.atan(Math.tan(half) / Math.max(camera.aspect, 0.55));
+    const floor = height < 360 ? 72 : narrow ? 64 : 36;
+    camera.fov = MathUtils.clamp(Math.max(MathUtils.radToDeg(vfov), floor), 36, 78);
     camera.updateProjectionMatrix();
   }
 
@@ -330,6 +332,9 @@ export function createOffice(canvas: HTMLCanvasElement): Office {
   const media = window.matchMedia("(prefers-color-scheme: dark)");
   media.addEventListener("change", () => setTheme(media.matches ? "dark" : "light"));
   window.addEventListener("resize", resize);
+  if (typeof ResizeObserver !== "undefined") {
+    new ResizeObserver(() => resize()).observe(canvas);
+  }
 
   return {
     scene,
