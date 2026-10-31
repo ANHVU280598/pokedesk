@@ -2,6 +2,7 @@ import type { EmployeeId } from "@pulse/shared";
 import { createCast, type Cast } from "./characters";
 import { mountDebug } from "./debug";
 import { createOffice, type Office } from "./scene";
+import { mountUi, type Ui } from "./ui";
 import "./style.css";
 
 const canvas = document.querySelector<HTMLCanvasElement>("#view");
@@ -12,7 +13,9 @@ if (!canvas || !boot) {
 
 const office = createOffice(canvas);
 const cast = createCast(office.actorRoot, office.scene, office.camera);
+const ui = mountUi();
 mountDebug(cast);
+ui.onSpeed((speed) => cast.setTimeScale(speed === 0 ? 0 : speed));
 
 const context = office.renderer.getContext();
 if (!context) {
@@ -29,8 +32,10 @@ office.setTapHandler((x, y) => {
   if (id) {
     focused = id;
     office.follow(cast.focusPoint(id), 14);
+    ui.showProfile(id);
     return;
   }
+  ui.close();
   focused = null;
   office.resetView();
 });
@@ -39,8 +44,11 @@ declare global {
   interface Window {
     __office?: Office;
     __cast?: Cast;
+    __ui?: Ui;
   }
 }
+
+window.__ui = ui;
 
 window.__office = office;
 window.__cast = cast;
